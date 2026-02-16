@@ -1,0 +1,6 @@
+tickets_vibe.db
+tickets_vibe.db-wal
+tickets_vibe.db-shm
+__pycache__/
+*.pyc
+.streamlit/
