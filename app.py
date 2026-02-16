@@ -10,12 +10,16 @@ Streamlit + SQLite приложение для управления перепр
 
 from __future__ import annotations
 
+import io
 import sqlite3
 import datetime
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Iterator
+from urllib.request import urlopen, Request
+from urllib.error import URLError
 
 import streamlit as st
 import pandas as pd
@@ -30,6 +34,88 @@ MARKET_KZ = "РК"
 
 TICKET_AVAILABLE = "Доступен"
 TICKET_SOLD = "Продан"
+
+# Fallback rates when APIs are unavailable
+FALLBACK_RATE_RUB_AED = 25.0
+FALLBACK_RATE_KZT_AED = 125.0
+
+# Central bank API URLs
+CBR_DAILY_URL = "https://www.cbr.ru/scripts/XML_daily.asp"
+NBK_RATES_URL = "https://nationalbank.kz/rss/rates_all.xml"
+
+
+# ──────────────────────────────────────────────
+# Exchange Rates
+# ──────────────────────────────────────────────
+@dataclass(frozen=True)
+class ExchangeRates:
+    """Курсы AED для обоих рынков."""
+    rub_per_aed: float
+    kzt_per_aed: float
+    rub_source: str  # "CBR" or "fallback"
+    kzt_source: str  # "NBK" or "fallback"
+
+
+def _fetch_url(url: str, timeout: int = 10) -> bytes:
+    """Fetch URL content with timeout."""
+    req = Request(url, headers={"User-Agent": "TicketResaleMVP/1.0"})
+    with urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def _parse_cbr_rate() -> float | None:
+    """
+    Parse CBR XML to get RUB/AED rate.
+    CBR returns rates per Nominal units, e.g. AED Nominal=1 Value=XX.XXXX
+    """
+    try:
+        data = _fetch_url(CBR_DAILY_URL)
+        root = ET.fromstring(data)
+        for valute in root.findall("Valute"):
+            char_code = valute.findtext("CharCode", "")
+            if char_code == "AED":
+                nominal = int(valute.findtext("Nominal", "1"))
+                value_str = valute.findtext("Value", "0").replace(",", ".")
+                return float(value_str) / nominal
+    except (URLError, ET.ParseError, ValueError, OSError):
+        pass
+    return None
+
+
+def _parse_nbk_rate() -> float | None:
+    """
+    Parse National Bank of Kazakhstan RSS/XML to get KZT/AED rate.
+    NBK returns XML with <item><title>AED</title><description>XXX.XX</description></item>
+    """
+    try:
+        data = _fetch_url(NBK_RATES_URL)
+        root = ET.fromstring(data)
+        # NBK uses RSS-like format: channel > item
+        for item in root.iter("item"):
+            title = item.findtext("title", "")
+            if title.strip() == "AED":
+                desc = item.findtext("description", "0").replace(",", ".")
+                quant_str = item.findtext("quant", "1").replace(",", ".")
+                quant = float(quant_str) if quant_str else 1.0
+                return float(desc) / quant
+    except (URLError, ET.ParseError, ValueError, OSError):
+        pass
+    return None
+
+
+def fetch_exchange_rates() -> ExchangeRates:
+    """
+    Fetch current AED exchange rates from CBR (Russia) and NBK (Kazakhstan).
+    Falls back to hardcoded defaults if APIs are unavailable.
+    """
+    rub = _parse_cbr_rate()
+    kzt = _parse_nbk_rate()
+    return ExchangeRates(
+        rub_per_aed=rub if rub is not None else FALLBACK_RATE_RUB_AED,
+        kzt_per_aed=kzt if kzt is not None else FALLBACK_RATE_KZT_AED,
+        rub_source="CBR" if rub is not None else "fallback",
+        kzt_source="NBK" if kzt is not None else "fallback",
+    )
 
 
 # ──────────────────────────────────────────────
@@ -233,6 +319,19 @@ def get_ticket(ticket_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+def find_ticket_by_seat(event_id: int, sector: str, row: str, seat: str) -> dict | None:
+    """Find a ticket by its sector/row/seat within an event (case-insensitive)."""
+    with get_db() as conn:
+        r = conn.execute(
+            "SELECT * FROM inventory WHERE event_id=? "
+            "AND LOWER(TRIM(sector))=LOWER(TRIM(?)) "
+            "AND LOWER(TRIM(row))=LOWER(TRIM(?)) "
+            "AND LOWER(TRIM(seat))=LOWER(TRIM(?))",
+            (event_id, sector, row, seat),
+        ).fetchone()
+        return dict(r) if r else None
+
+
 # ── Sales ────────────────────────────────────
 def create_sale(
     ticket_id: int, buyer_name: str, buyer_contact: str,
@@ -256,6 +355,152 @@ def list_sales(event_id: int) -> list[dict]:
             WHERE i.event_id=? ORDER BY s.sold_at DESC
         """, (event_id,)).fetchall()
         return [dict(r) for r in rows]
+
+
+# ── Aggregation queries ─────────────────────
+def get_inventory_summary(event_id: int) -> list[dict]:
+    """Aggregate inventory by sector: total, available, sold, avg cost, potential revenue."""
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT
+                sector                                          AS category,
+                COUNT(*)                                        AS total,
+                SUM(CASE WHEN status = 'Доступен' THEN 1 ELSE 0 END) AS available,
+                SUM(CASE WHEN status = 'Продан'   THEN 1 ELSE 0 END) AS sold,
+                ROUND(AVG(cost_aed), 2)                         AS avg_cost_aed,
+                ROUND(SUM(cost_aed), 2)                         AS total_cost_aed
+            FROM inventory
+            WHERE event_id = ?
+            GROUP BY sector
+            ORDER BY sector
+        """, (event_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_event_metrics(event_id: int) -> dict:
+    """Top-level metrics for an event."""
+    with get_db() as conn:
+        inv = conn.execute("""
+            SELECT
+                COUNT(*)                                                AS total_tickets,
+                COALESCE(SUM(cost_aed), 0)                              AS total_invested_aed,
+                SUM(CASE WHEN status = 'Продан'   THEN 1 ELSE 0 END)   AS sold_count,
+                SUM(CASE WHEN status = 'Доступен' THEN 1 ELSE 0 END)   AS available_count,
+                COALESCE(SUM(CASE WHEN status = 'Продан' THEN cost_aed ELSE 0 END), 0) AS sold_cost_aed
+            FROM inventory WHERE event_id = ?
+        """, (event_id,)).fetchone()
+
+        sales_row = conn.execute("""
+            SELECT COALESCE(SUM(s.selling_price), 0) AS total_revenue
+            FROM sales s JOIN inventory i ON s.ticket_id = i.id
+            WHERE i.event_id = ?
+        """, (event_id,)).fetchone()
+
+        return {
+            "total_tickets": inv["total_tickets"],
+            "total_invested_aed": inv["total_invested_aed"],
+            "sold_count": inv["sold_count"],
+            "available_count": inv["available_count"],
+            "sold_cost_aed": inv["sold_cost_aed"],
+            "total_revenue": sales_row["total_revenue"],
+        }
+
+
+# ──────────────────────────────────────────────
+# Sales CSV/XLSX importer
+# ──────────────────────────────────────────────
+def parse_sales_file(uploaded_file) -> pd.DataFrame:
+    """
+    Read a sales report file (CSV with ; separator, or XLSX).
+    Expected columns (case-insensitive): Section, Row, Seat, Buyer, Contact, Market, Price
+    """
+    name = uploaded_file.name.lower()
+    if name.endswith(".xlsx") or name.endswith(".xls"):
+        df = pd.read_excel(uploaded_file)
+    else:
+        # Try semicolon-separated CSV first (total_report.csv format)
+        content = uploaded_file.read()
+        uploaded_file.seek(0)
+        try:
+            df = pd.read_csv(io.BytesIO(content), sep=";", encoding="utf-8")
+        except Exception:
+            df = pd.read_csv(io.BytesIO(content), sep=",", encoding="utf-8")
+
+    # Normalize column names to lowercase stripped
+    df.columns = [c.strip().lower() for c in df.columns]
+    return df
+
+
+def import_sales_from_df(event_id: int, df: pd.DataFrame) -> dict:
+    """
+    Match rows from sales report to inventory and create sales.
+    Returns {"imported": N, "skipped": N, "not_found": N, "revenue": float, "errors": [str]}
+    """
+    result = {"imported": 0, "skipped": 0, "not_found": 0, "revenue": 0.0, "errors": []}
+
+    # Map possible column names
+    col_map = {
+        "section": ["section", "sector", "сектор", "секция"],
+        "row": ["row", "ряд"],
+        "seat": ["seat", "место", "seat_number"],
+        "buyer": ["buyer", "buyer_name", "покупатель", "имя"],
+        "contact": ["contact", "buyer_contact", "контакт", "телефон", "tg"],
+        "market": ["market", "рынок"],
+        "price": ["price", "selling_price", "цена", "сумма"],
+    }
+
+    def find_col(key: str) -> str | None:
+        for alias in col_map[key]:
+            if alias in df.columns:
+                return alias
+        return None
+
+    sec_col = find_col("section")
+    row_col = find_col("row")
+    seat_col = find_col("seat")
+    buyer_col = find_col("buyer")
+    contact_col = find_col("contact")
+    market_col = find_col("market")
+    price_col = find_col("price")
+
+    if not all([sec_col, row_col, seat_col]):
+        result["errors"].append(
+            f"Не найдены обязательные колонки Section/Row/Seat. "
+            f"Колонки файла: {list(df.columns)}"
+        )
+        return result
+
+    for idx, row_data in df.iterrows():
+        sector = str(row_data.get(sec_col, "")).strip()
+        row_val = str(row_data.get(row_col, "")).strip()
+        seat_val = str(row_data.get(seat_col, "")).strip()
+
+        if not sector and not row_val and not seat_val:
+            continue
+
+        ticket = find_ticket_by_seat(event_id, sector, row_val, seat_val)
+        if ticket is None:
+            result["not_found"] += 1
+            result["errors"].append(f"Строка {idx + 1}: билет {sector}/{row_val}/{seat_val} не найден в БД")
+            continue
+
+        if ticket["status"] == TICKET_SOLD:
+            result["skipped"] += 1
+            continue
+
+        buyer = str(row_data.get(buyer_col, "")) if buyer_col else ""
+        contact = str(row_data.get(contact_col, "")) if contact_col else ""
+        market = str(row_data.get(market_col, MARKET_RU)) if market_col else MARKET_RU
+        try:
+            price = float(row_data.get(price_col, 0)) if price_col else 0.0
+        except (ValueError, TypeError):
+            price = 0.0
+
+        create_sale(ticket["id"], buyer.strip(), contact.strip(), market.strip(), price)
+        result["imported"] += 1
+        result["revenue"] += price
+
+    return result
 
 
 # ──────────────────────────────────────────────
@@ -291,12 +536,38 @@ def render_pricing_card(bd: PricingBreakdown) -> None:
         st.markdown(f"**Маржа:** {margin:.1f}%")
 
 
+def render_top_metrics(event: dict, metrics: dict, rate_cb: float) -> None:
+    """Render top-level KPI cards for the event."""
+    total_invested = metrics["total_invested_aed"]
+    sold_cost_aed = metrics["sold_cost_aed"]
+    total_revenue = metrics["total_revenue"]
+
+    # Net profit approximation: revenue minus cost of sold tickets in local currency
+    # Using RU market formula for AED→RUB conversion as primary estimate
+    sold_cost_local = sold_cost_aed * (rate_cb + PricingEngine.RU_RATE_MARKUP) if rate_cb > 0 else 0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Всего вложено", f"{fmt(total_invested)} AED")
+    c2.metric("Продано билетов", f"{metrics['sold_count']} / {metrics['total_tickets']}")
+    c3.metric("Выручка от продаж", fmt(total_revenue))
+    c4.metric(
+        "Чистая прибыль (оценка)",
+        fmt(total_revenue - sold_cost_local) if sold_cost_local > 0 else "—",
+    )
+
+
 # ──────────────────────────────────────────────
 # Pages
 # ──────────────────────────────────────────────
 def page_dashboard(event: dict) -> None:
     st.title(event["name"])
     st.caption(f'{event["date"]}  \u00b7  {event["venue"]}')
+
+    # ── Top-level metrics ────────────────────
+    metrics = get_event_metrics(event["id"])
+    rate_for_metrics = event["rate_cb"] if event["rate_cb"] > 0 else FALLBACK_RATE_RUB_AED
+    render_top_metrics(event, metrics, rate_for_metrics)
+    st.markdown("---")
 
     tab_eco, tab_inv, tab_sales, tab_mon = st.tabs(
         ["\U0001f4ca Экономика", "\U0001f3ab Инвентарь", "\U0001f4b0 Продажи", "\U0001f50d Мониторинг"]
@@ -305,12 +576,20 @@ def page_dashboard(event: dict) -> None:
     # ── Tab 1: Экономика ─────────────────────
     with tab_eco:
         st.subheader("Калькулятор цены")
+
+        # Auto-fetch rates
+        rates = _get_cached_rates()
+        st.caption(
+            f"Курсы: RUB/AED = {fmt(rates.rub_per_aed)} ({rates.rub_source}) | "
+            f"KZT/AED = {fmt(rates.kzt_per_aed)} ({rates.kzt_source})"
+        )
+
         cc, cr = st.columns(2)
         cost_aed = cc.number_input(
             "Цена закупа (AED)", min_value=0.0, value=100.0, step=10.0,
             key=f"cost_{event['id']}",
         )
-        default_rate = event["rate_cb"] if event["rate_cb"] > 0 else 25.0
+        default_rate = event["rate_cb"] if event["rate_cb"] > 0 else rates.rub_per_aed
         rate_cb = cr.number_input(
             "Курс ЦБ (AED \u2192 RUB)", min_value=0.0, value=default_rate, step=0.5,
             key=f"rate_{event['id']}",
@@ -345,30 +624,99 @@ def page_dashboard(event: dict) -> None:
                     st.success("Билет добавлен!")
                     st.rerun()
 
-        st.subheader("Текущий сток")
+        # ── Aggregated inventory table ───────
+        st.subheader("Сводка по категориям")
+        summary = get_inventory_summary(event["id"])
+        if summary:
+            rate_cb_val = event["rate_cb"] if event["rate_cb"] > 0 else FALLBACK_RATE_RUB_AED
+            agg_data = []
+            for s in summary:
+                # Potential revenue = available tickets * avg price (RU market)
+                if s["available"] > 0 and rate_cb_val > 0:
+                    bd = PricingEngine.calculate_ru(s["avg_cost_aed"], rate_cb_val)
+                    potential = round(bd.selling_price * s["available"], 2)
+                else:
+                    potential = 0.0
+                agg_data.append({
+                    "Категория": s["category"] or "(без сектора)",
+                    "Всего куплено": s["total"],
+                    "Осталось": s["available"],
+                    "Продано": s["sold"],
+                    "Ср. цена AED": s["avg_cost_aed"],
+                    "Потенц. выручка (RUB)": fmt(potential),
+                })
+            df_agg = pd.DataFrame(agg_data)
+            st.dataframe(df_agg, use_container_width=True, hide_index=True)
+
+            # Progress bar: % sold
+            total_all = sum(s["total"] for s in summary)
+            sold_all = sum(s["sold"] for s in summary)
+            pct = sold_all / total_all if total_all > 0 else 0
+            st.markdown(f"**Прогресс продаж: {sold_all} / {total_all} ({pct:.0%})**")
+            st.progress(pct)
+        else:
+            st.info("Пока нет билетов. Добавьте первый выше.")
+
+        # ── Full ticket list ─────────────────
+        st.subheader("Полный список билетов")
         tickets = list_tickets(event["id"])
         if tickets:
             df = pd.DataFrame(tickets)[["id", "sector", "row", "seat", "cost_aed", "status"]]
             df.columns = ["ID", "Сектор", "Ряд", "Место", "Цена AED", "Статус"]
             st.dataframe(df, use_container_width=True, hide_index=True)
-            avail = sum(1 for t in tickets if t["status"] == TICKET_AVAILABLE)
-            sold = sum(1 for t in tickets if t["status"] == TICKET_SOLD)
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Всего", len(tickets))
-            m2.metric("Доступно", avail)
-            m3.metric("Продано", sold)
-        else:
-            st.info("Пока нет билетов. Добавьте первый выше.")
 
     # ── Tab 3: Продажи ───────────────────────
     with tab_sales:
-        st.subheader("Оформить продажу")
+        # ── CSV/XLSX uploader ────────────────
+        st.subheader("Загрузка продаж из файла")
+        st.caption(
+            "Загрузите total_report.csv (разделитель ;) или XLSX. "
+            "Обязательные колонки: **Section**, **Row**, **Seat**. "
+            "Опционально: Buyer, Contact, Market, Price."
+        )
+        uploaded = st.file_uploader(
+            "Выберите файл", type=["csv", "xlsx", "xls"],
+            key=f"upload_{event['id']}",
+        )
+        if uploaded is not None:
+            try:
+                df_upload = parse_sales_file(uploaded)
+                st.markdown(f"Прочитано **{len(df_upload)}** строк. Колонки: `{list(df_upload.columns)}`")
+                st.dataframe(df_upload.head(10), use_container_width=True, hide_index=True)
+
+                if st.button("Импортировать продажи", key=f"import_{event['id']}"):
+                    result = import_sales_from_df(event["id"], df_upload)
+                    if result["errors"] and result["imported"] == 0:
+                        for err in result["errors"]:
+                            st.error(err)
+                    else:
+                        st.success(
+                            f"Успешно загружено **{result['imported']}** продаж, "
+                            f"выручка составила **{fmt(result['revenue'])}**"
+                        )
+                        if result["skipped"] > 0:
+                            st.info(f"Пропущено (уже продано): {result['skipped']}")
+                        if result["not_found"] > 0:
+                            st.warning(f"Не найдено в БД: {result['not_found']}")
+                        if result["errors"]:
+                            with st.expander("Детали ошибок"):
+                                for err in result["errors"]:
+                                    st.text(err)
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Ошибка чтения файла: {e}")
+
+        st.markdown("---")
+
+        # ── Manual sale form ─────────────────
+        st.subheader("Оформить продажу вручную")
         available = list_tickets(event["id"], status=TICKET_AVAILABLE)
         if not available:
             st.info("Нет доступных билетов для продажи.")
         else:
+            rate_cb_val = event["rate_cb"] if event["rate_cb"] > 0 else FALLBACK_RATE_RUB_AED
             opts = {
-                f"#{t['id']}  {t['sector']}/{t['row']}/{t['seat']} — {t['cost_aed']} AED": t["id"]
+                f"#{t['id']}  {t['sector']}/{t['row']}/{t['seat']} \u2014 {t['cost_aed']} AED": t["id"]
                 for t in available
             }
             with st.form(f"sell_{event['id']}", clear_on_submit=True):
@@ -378,12 +726,12 @@ def page_dashboard(event: dict) -> None:
                 s_market = st.selectbox("Рынок", [MARKET_RU, MARKET_KZ])
 
                 auto_price = 0.0
-                if chosen and rate_cb > 0:
+                if chosen and rate_cb_val > 0:
                     tid = opts[chosen]
                     tk = get_ticket(tid)
                     if tk:
                         bd = (PricingEngine.calculate_ru if s_market == MARKET_RU
-                              else PricingEngine.calculate_kz)(tk["cost_aed"], rate_cb)
+                              else PricingEngine.calculate_kz)(tk["cost_aed"], rate_cb_val)
                         auto_price = bd.selling_price
                         st.markdown(f"**Рекомендованная цена:** {fmt(auto_price)} {bd.currency}")
 
@@ -401,20 +749,23 @@ def page_dashboard(event: dict) -> None:
                         st.success("Продажа оформлена!")
                         st.rerun()
 
+        # ── Sales history ────────────────────
         st.subheader("История продаж")
         sales = list_sales(event["id"])
         if sales:
             df_s = pd.DataFrame(sales)[
                 ["id", "sector", "row", "seat", "buyer_name", "buyer_contact",
-                 "market", "selling_price", "sold_at"]
+                 "market", "selling_price", "cost_aed", "sold_at"]
             ]
             df_s.columns = ["ID", "Сектор", "Ряд", "Место", "Покупатель",
-                            "Контакт", "Рынок", "Цена", "Дата"]
+                            "Контакт", "Рынок", "Цена продажи", "Закуп AED", "Дата"]
             st.dataframe(df_s, use_container_width=True, hide_index=True)
             total = sum(s["selling_price"] for s in sales)
-            mc1, mc2 = st.columns(2)
+            total_cost = sum(s["cost_aed"] for s in sales)
+            mc1, mc2, mc3 = st.columns(3)
             mc1.metric("Общая выручка", fmt(total))
-            mc2.metric("Количество продаж", len(sales))
+            mc2.metric("Закуп (AED)", fmt(total_cost))
+            mc3.metric("Количество продаж", len(sales))
         else:
             st.info("Продаж пока нет.")
 
@@ -435,12 +786,11 @@ def page_dashboard(event: dict) -> None:
                 st.warning("Введите ключевые слова.")
             else:
                 st.info(f"Поиск: **{keywords}**")
-                # Заглушка — структура для будущего API
                 mock = [
                     {"source": "Telegram", "channel": "@tickets_market",
                      "text": f"Продаю билеты на {event['name']}", "date": "2025-01-15", "url": "#"},
                     {"source": "Avito", "seller": "Иван П.",
-                     "text": f"{event['name']} — 2 билета, сектор A", "price": "15 000 RUB",
+                     "text": f"{event['name']} \u2014 2 билета, сектор A", "price": "15 000 RUB",
                      "date": "2025-01-14", "url": "#"},
                     {"source": "Telegram", "channel": "@event_tickets_ru",
                      "text": f"Ищу билеты на {event['name']}, куплю дорого",
@@ -457,13 +807,38 @@ def page_dashboard(event: dict) -> None:
         st.markdown("---")
         st.caption(
             "Структура данных подготовлена: source, channel/seller, text, price, date, url. "
-            "В будущем — подключение к Telegram API и парсинг Avito."
+            "В будущем \u2014 подключение к Telegram API и парсинг Avito."
         )
+
+
+def _get_cached_rates() -> ExchangeRates:
+    """Fetch exchange rates with Streamlit caching (5 min TTL)."""
+    if "exchange_rates" not in st.session_state:
+        st.session_state["exchange_rates"] = fetch_exchange_rates()
+        st.session_state["rates_fetched_at"] = datetime.datetime.now()
+    else:
+        elapsed = datetime.datetime.now() - st.session_state["rates_fetched_at"]
+        if elapsed.total_seconds() > 300:
+            st.session_state["exchange_rates"] = fetch_exchange_rates()
+            st.session_state["rates_fetched_at"] = datetime.datetime.now()
+    return st.session_state["exchange_rates"]
 
 
 def sidebar() -> int | None:
     """Боковая панель: список событий + создание нового."""
     st.sidebar.title("\U0001f3ab Ticket Resale")
+
+    # Show current exchange rates in sidebar
+    rates = _get_cached_rates()
+    st.sidebar.caption(
+        f"RUB/AED: {fmt(rates.rub_per_aed)} ({rates.rub_source})\n\n"
+        f"KZT/AED: {fmt(rates.kzt_per_aed)} ({rates.kzt_source})"
+    )
+    if st.sidebar.button("Обновить курсы", key="refresh_rates"):
+        st.session_state.pop("exchange_rates", None)
+        st.session_state.pop("rates_fetched_at", None)
+        st.rerun()
+
     st.sidebar.markdown("---")
 
     # Создание события
@@ -472,7 +847,10 @@ def sidebar() -> int | None:
             e_name = st.text_input("Название")
             e_date = st.date_input("Дата", value=datetime.date.today())
             e_venue = st.text_input("Место проведения")
-            e_rate = st.number_input("Базовый курс ЦБ", min_value=0.0, value=25.0, step=0.5)
+            e_rate = st.number_input(
+                "Базовый курс ЦБ (RUB/AED)", min_value=0.0,
+                value=rates.rub_per_aed, step=0.5,
+            )
             e_kw = st.text_input("Ключевые слова")
             if st.form_submit_button("Создать"):
                 if not e_name.strip():
