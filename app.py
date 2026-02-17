@@ -1,11 +1,10 @@
 """
 Ticket Resale MVP - Event-Centric Workspace
 =============================================
-Streamlit + SQLite приложение для управления перепродажей билетов.
-Все действия (расчёты, продажи, мониторинг) происходят внутри конкретного события.
+Streamlit + SQLite. Apple Card aesthetic.
 
 Запуск:  streamlit run app.py
-БД:      tickets_vibe.db (создаётся автоматически)
+БД:      tickets_vibe.db (автоматически)
 """
 
 from __future__ import annotations
@@ -35,13 +34,207 @@ MARKET_KZ = "РК"
 TICKET_AVAILABLE = "Доступен"
 TICKET_SOLD = "Продан"
 
-# Fallback rates when APIs are unavailable
 FALLBACK_RATE_RUB_AED = 25.0
 FALLBACK_RATE_KZT_AED = 125.0
 
-# Central bank API URLs
 CBR_DAILY_URL = "https://www.cbr.ru/scripts/XML_daily.asp"
-NBK_RATES_URL = "https://nationalbank.kz/rss/rates_all.xml"
+NBK_RATES_URL = "https://www.nationalbank.kz/rss/get_rates.xml"
+
+
+# ──────────────────────────────────────────────
+# Apple Card CSS
+# ──────────────────────────────────────────────
+APPLE_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* ── Global ───────────────────────────── */
+.stApp {
+    background-color: #F5F5F7 !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif !important;
+}
+section[data-testid="stSidebar"] {
+    background-color: #FFFFFF !important;
+    border-right: 1px solid #E5E5EA !important;
+}
+section[data-testid="stSidebar"] .stMarkdown h1 {
+    font-weight: 800 !important; letter-spacing: -0.5px;
+}
+
+/* ── Card tile ────────────────────────── */
+.apple-card {
+    background: #FFFFFF;
+    border-radius: 16px;
+    padding: 24px 28px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    margin-bottom: 16px;
+    border: 1px solid rgba(0,0,0,0.04);
+}
+.apple-card h3 {
+    margin: 0 0 12px 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #86868B;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.apple-card .big-value {
+    font-size: 34px;
+    font-weight: 700;
+    color: #1D1D1F;
+    line-height: 1.1;
+    letter-spacing: -0.5px;
+}
+.apple-card .sub-value {
+    font-size: 14px;
+    color: #86868B;
+    margin-top: 4px;
+}
+
+/* ── Gradient market cards ────────────── */
+.card-ru {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 20px;
+    padding: 28px 32px;
+    color: white;
+    box-shadow: 0 8px 24px rgba(102,126,234,0.25);
+    margin-bottom: 16px;
+}
+.card-kz {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    border-radius: 20px;
+    padding: 28px 32px;
+    color: white;
+    box-shadow: 0 8px 24px rgba(245,87,108,0.25);
+    margin-bottom: 16px;
+}
+.card-ru h3, .card-kz h3 {
+    margin: 0 0 6px 0;
+    font-size: 14px;
+    font-weight: 600;
+    opacity: 0.85;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.card-ru .big-value, .card-kz .big-value {
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.5px;
+}
+.card-ru .sub-value, .card-kz .sub-value {
+    font-size: 13px;
+    opacity: 0.8;
+    margin-top: 4px;
+}
+
+/* ── Breakdown list ───────────────────── */
+.breakdown-list {
+    background: #FFFFFF;
+    border-radius: 16px;
+    padding: 20px 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    border: 1px solid rgba(0,0,0,0.04);
+    margin-top: 12px;
+}
+.breakdown-list .row-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 14px;
+    border-bottom: 1px solid #F5F5F7;
+}
+.breakdown-list .row-item:last-child { border-bottom: none; }
+.breakdown-list .row-item .label { color: #86868B; }
+.breakdown-list .row-item .value { font-weight: 600; color: #1D1D1F; }
+.breakdown-list .row-item.total { border-top: 2px solid #E5E5EA; padding-top: 12px; margin-top: 4px; }
+.breakdown-list .row-item.total .label,
+.breakdown-list .row-item.total .value { font-weight: 700; color: #1D1D1F; }
+.breakdown-list .row-item.profit .value { color: #34C759; font-weight: 700; }
+
+/* ── Category card (inventory) ────────── */
+.cat-card {
+    background: #FFFFFF;
+    border-radius: 16px;
+    padding: 20px 24px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    border: 1px solid rgba(0,0,0,0.04);
+    margin-bottom: 12px;
+}
+.cat-card .cat-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1D1D1F;
+    margin-bottom: 12px;
+}
+.cat-card .cat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 14px;
+}
+.cat-card .cat-row .cl { color: #86868B; }
+.cat-card .cat-row .cv { font-weight: 600; color: #1D1D1F; }
+
+/* ── Progress bar ─────────────────────── */
+.progress-wrap {
+    background: #E5E5EA;
+    border-radius: 8px;
+    height: 10px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+.progress-fill {
+    height: 100%;
+    border-radius: 8px;
+    background: linear-gradient(90deg, #34C759 0%, #30D158 100%);
+    transition: width 0.4s ease;
+}
+
+/* ── Live badge ───────────────────────── */
+.live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #F5F5F7;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #86868B;
+}
+.live-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #34C759;
+    display: inline-block;
+}
+.live-dot.offline { background: #FF9500; }
+
+/* ── Hide default streamlit metrics border ─ */
+[data-testid="stMetric"] {
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    border: 1px solid rgba(0,0,0,0.04);
+}
+
+/* ── Tabs styling ─────────────────────── */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+}
+</style>
+"""
 
 
 # ──────────────────────────────────────────────
@@ -49,31 +242,26 @@ NBK_RATES_URL = "https://nationalbank.kz/rss/rates_all.xml"
 # ──────────────────────────────────────────────
 @dataclass(frozen=True)
 class ExchangeRates:
-    """Курсы AED для обоих рынков."""
     rub_per_aed: float
     kzt_per_aed: float
-    rub_source: str  # "CBR" or "fallback"
-    kzt_source: str  # "NBK" or "fallback"
+    rub_source: str
+    kzt_source: str
+    fetched_at: str  # ISO timestamp
 
 
 def _fetch_url(url: str, timeout: int = 10) -> bytes:
-    """Fetch URL content with timeout."""
     req = Request(url, headers={"User-Agent": "TicketResaleMVP/1.0"})
     with urlopen(req, timeout=timeout) as resp:
         return resp.read()
 
 
 def _parse_cbr_rate() -> float | None:
-    """
-    Parse CBR XML to get RUB/AED rate.
-    CBR returns rates per Nominal units, e.g. AED Nominal=1 Value=XX.XXXX
-    """
+    """Parse CBR XML: RUB per 1 AED."""
     try:
         data = _fetch_url(CBR_DAILY_URL)
         root = ET.fromstring(data)
         for valute in root.findall("Valute"):
-            char_code = valute.findtext("CharCode", "")
-            if char_code == "AED":
+            if valute.findtext("CharCode", "") == "AED":
                 nominal = int(valute.findtext("Nominal", "1"))
                 value_str = valute.findtext("Value", "0").replace(",", ".")
                 return float(value_str) / nominal
@@ -83,17 +271,14 @@ def _parse_cbr_rate() -> float | None:
 
 
 def _parse_nbk_rate() -> float | None:
-    """
-    Parse National Bank of Kazakhstan RSS/XML to get KZT/AED rate.
-    NBK returns XML with <item><title>AED</title><description>XXX.XX</description></item>
-    """
+    """Parse NBK XML: KZT per 1 AED."""
     try:
         data = _fetch_url(NBK_RATES_URL)
         root = ET.fromstring(data)
-        # NBK uses RSS-like format: channel > item
+        # NBK get_rates.cfm returns <rates><item>...</item></rates>
         for item in root.iter("item"):
-            title = item.findtext("title", "")
-            if title.strip() == "AED":
+            title = item.findtext("title", "").strip()
+            if title == "AED":
                 desc = item.findtext("description", "0").replace(",", ".")
                 quant_str = item.findtext("quant", "1").replace(",", ".")
                 quant = float(quant_str) if quant_str else 1.0
@@ -104,10 +289,6 @@ def _parse_nbk_rate() -> float | None:
 
 
 def fetch_exchange_rates() -> ExchangeRates:
-    """
-    Fetch current AED exchange rates from CBR (Russia) and NBK (Kazakhstan).
-    Falls back to hardcoded defaults if APIs are unavailable.
-    """
     rub = _parse_cbr_rate()
     kzt = _parse_nbk_rate()
     return ExchangeRates(
@@ -115,7 +296,18 @@ def fetch_exchange_rates() -> ExchangeRates:
         kzt_per_aed=kzt if kzt is not None else FALLBACK_RATE_KZT_AED,
         rub_source="CBR" if rub is not None else "fallback",
         kzt_source="NBK" if kzt is not None else "fallback",
+        fetched_at=datetime.datetime.now().isoformat(timespec="seconds"),
     )
+
+
+def _get_cached_rates() -> ExchangeRates:
+    if "exchange_rates" not in st.session_state:
+        st.session_state["exchange_rates"] = fetch_exchange_rates()
+    else:
+        fetched = datetime.datetime.fromisoformat(st.session_state["exchange_rates"].fetched_at)
+        if (datetime.datetime.now() - fetched).total_seconds() > 300:
+            st.session_state["exchange_rates"] = fetch_exchange_rates()
+    return st.session_state["exchange_rates"]
 
 
 # ──────────────────────────────────────────────
@@ -123,8 +315,6 @@ def fetch_exchange_rates() -> ExchangeRates:
 # ──────────────────────────────────────────────
 @dataclass(frozen=True)
 class PricingBreakdown:
-    """Результат расчёта цены для одного рынка."""
-
     market: str
     cost_aed: float
     rate_cb: float
@@ -139,31 +329,17 @@ class PricingBreakdown:
 
 class PricingEngine:
     """
-    Reverse Pricing Engine.
+    Reverse Pricing — 50% net profit target.
 
-    Рассчитывает цену продажи (P) так, чтобы прибыль составляла 50 %
-    от суммы, оставшейся после всех налогов и сборов.
-
-    Рынок РФ
-    --------
-    C_rub = C_aed * (Rate + 3)
-    Сборы: 13 % налог + 6 % платформа = 19 % от P
-    P = C_rub / 0.405
-
-    Рынок РК
-    --------
-    C_kzt = C_aed * (Rate * 1.10)
-    Сборы: 20 % НДС + 10 % партнёр + 6 % платформа = 36 % от P
-    P = C_kzt / 0.32
+    РФ:  C_rub = C_aed * (Rate + 3)           P = C_rub / 0.405
+    РК:  C_kzt = C_aed * (Rate * 1.10)        P = C_kzt / 0.32
     """
 
-    # РФ
     RU_TAX = 0.13
     RU_PLATFORM = 0.06
     RU_RATE_MARKUP = 3.0
     RU_DENOM = 0.405
 
-    # РК
     KZ_VAT = 0.20
     KZ_PARTNER = 0.10
     KZ_PLATFORM = 0.06
@@ -200,10 +376,8 @@ class PricingEngine:
         )
 
     @classmethod
-    def calculate_both(
-        cls, cost_aed: float, rate_cb: float,
-    ) -> tuple[PricingBreakdown, PricingBreakdown]:
-        return cls.calculate_ru(cost_aed, rate_cb), cls.calculate_kz(cost_aed, rate_cb)
+    def calculate_both(cls, cost_aed: float, rate_rub: float, rate_kzt: float) -> tuple[PricingBreakdown, PricingBreakdown]:
+        return cls.calculate_ru(cost_aed, rate_rub), cls.calculate_kz(cost_aed, rate_kzt)
 
 
 # ──────────────────────────────────────────────
@@ -224,52 +398,57 @@ def get_db() -> Iterator[sqlite3.Connection]:
 
 def init_db() -> None:
     with get_db() as conn:
+        # Migration: add rate_kzt column if missing
+        try:
+            conn.execute("ALTER TABLE events ADD COLUMN rate_kzt REAL NOT NULL DEFAULT 0.0")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS events (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                name        TEXT    NOT NULL,
-                date        TEXT    NOT NULL,
-                venue       TEXT    NOT NULL DEFAULT '',
-                rate_cb     REAL    NOT NULL DEFAULT 0.0,
-                keywords    TEXT    NOT NULL DEFAULT '',
-                created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                date TEXT NOT NULL,
+                venue TEXT NOT NULL DEFAULT '',
+                rate_cb REAL NOT NULL DEFAULT 0.0,
+                rate_kzt REAL NOT NULL DEFAULT 0.0,
+                keywords TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
             CREATE TABLE IF NOT EXISTS inventory (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_id    INTEGER NOT NULL REFERENCES events(id),
-                sector      TEXT    NOT NULL DEFAULT '',
-                row         TEXT    NOT NULL DEFAULT '',
-                seat        TEXT    NOT NULL DEFAULT '',
-                cost_aed    REAL    NOT NULL DEFAULT 0.0,
-                status      TEXT    NOT NULL DEFAULT 'Доступен',
-                created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER NOT NULL REFERENCES events(id),
+                sector TEXT NOT NULL DEFAULT '',
+                row TEXT NOT NULL DEFAULT '',
+                seat TEXT NOT NULL DEFAULT '',
+                cost_aed REAL NOT NULL DEFAULT 0.0,
+                status TEXT NOT NULL DEFAULT 'Доступен',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
             CREATE TABLE IF NOT EXISTS sales (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticket_id       INTEGER NOT NULL REFERENCES inventory(id),
-                buyer_name      TEXT    NOT NULL DEFAULT '',
-                buyer_contact   TEXT    NOT NULL DEFAULT '',
-                market          TEXT    NOT NULL DEFAULT 'РФ',
-                selling_price   REAL    NOT NULL DEFAULT 0.0,
-                sold_at         TEXT    NOT NULL DEFAULT (datetime('now'))
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticket_id INTEGER NOT NULL REFERENCES inventory(id),
+                buyer_name TEXT NOT NULL DEFAULT '',
+                buyer_contact TEXT NOT NULL DEFAULT '',
+                market TEXT NOT NULL DEFAULT 'РФ',
+                selling_price REAL NOT NULL DEFAULT 0.0,
+                sold_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
         """)
 
 
 # ── Events ───────────────────────────────────
-def create_event(name: str, date: str, venue: str, rate_cb: float, keywords: str) -> int:
+def create_event(name: str, date: str, venue: str, rate_cb: float, rate_kzt: float, keywords: str) -> int:
     with get_db() as conn:
         cur = conn.execute(
-            "INSERT INTO events (name, date, venue, rate_cb, keywords) VALUES (?,?,?,?,?)",
-            (name, date, venue, rate_cb, keywords),
+            "INSERT INTO events (name, date, venue, rate_cb, rate_kzt, keywords) VALUES (?,?,?,?,?,?)",
+            (name, date, venue, rate_cb, rate_kzt, keywords),
         )
         return cur.lastrowid  # type: ignore[return-value]
 
 
 def list_events() -> list[dict]:
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM events ORDER BY date DESC").fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in conn.execute("SELECT * FROM events ORDER BY date DESC").fetchall()]
 
 
 def get_event(event_id: int) -> dict | None:
@@ -281,6 +460,11 @@ def get_event(event_id: int) -> dict | None:
 def update_event_rate(event_id: int, rate_cb: float) -> None:
     with get_db() as conn:
         conn.execute("UPDATE events SET rate_cb=? WHERE id=?", (rate_cb, event_id))
+
+
+def update_event_rate_kzt(event_id: int, rate_kzt: float) -> None:
+    with get_db() as conn:
+        conn.execute("UPDATE events SET rate_kzt=? WHERE id=?", (rate_kzt, event_id))
 
 
 def update_event_keywords(event_id: int, keywords: str) -> None:
@@ -320,7 +504,6 @@ def get_ticket(ticket_id: int) -> dict | None:
 
 
 def find_ticket_by_seat(event_id: int, sector: str, row: str, seat: str) -> dict | None:
-    """Find a ticket by its sector/row/seat within an event (case-insensitive)."""
     with get_db() as conn:
         r = conn.execute(
             "SELECT * FROM inventory WHERE event_id=? "
@@ -357,45 +540,40 @@ def list_sales(event_id: int) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-# ── Aggregation queries ─────────────────────
+# ── Aggregation ──────────────────────────────
 def get_inventory_summary(event_id: int) -> list[dict]:
-    """Aggregate inventory by sector: total, available, sold, avg cost, potential revenue."""
     with get_db() as conn:
         rows = conn.execute("""
             SELECT
-                sector                                          AS category,
-                COUNT(*)                                        AS total,
-                SUM(CASE WHEN status = 'Доступен' THEN 1 ELSE 0 END) AS available,
-                SUM(CASE WHEN status = 'Продан'   THEN 1 ELSE 0 END) AS sold,
-                ROUND(AVG(cost_aed), 2)                         AS avg_cost_aed,
-                ROUND(SUM(cost_aed), 2)                         AS total_cost_aed
-            FROM inventory
-            WHERE event_id = ?
-            GROUP BY sector
-            ORDER BY sector
+                sector AS category,
+                COUNT(*) AS total,
+                SUM(CASE WHEN status='Доступен' THEN 1 ELSE 0 END) AS available,
+                SUM(CASE WHEN status='Продан' THEN 1 ELSE 0 END) AS sold,
+                ROUND(AVG(cost_aed), 2) AS avg_cost_aed,
+                ROUND(SUM(cost_aed), 2) AS total_cost_aed,
+                ROUND(SUM(CASE WHEN status='Доступен' THEN cost_aed ELSE 0 END), 2) AS avail_cost_aed
+            FROM inventory WHERE event_id=?
+            GROUP BY sector ORDER BY sector
         """, (event_id,)).fetchall()
         return [dict(r) for r in rows]
 
 
 def get_event_metrics(event_id: int) -> dict:
-    """Top-level metrics for an event."""
     with get_db() as conn:
         inv = conn.execute("""
             SELECT
-                COUNT(*)                                                AS total_tickets,
-                COALESCE(SUM(cost_aed), 0)                              AS total_invested_aed,
-                SUM(CASE WHEN status = 'Продан'   THEN 1 ELSE 0 END)   AS sold_count,
-                SUM(CASE WHEN status = 'Доступен' THEN 1 ELSE 0 END)   AS available_count,
-                COALESCE(SUM(CASE WHEN status = 'Продан' THEN cost_aed ELSE 0 END), 0) AS sold_cost_aed
-            FROM inventory WHERE event_id = ?
+                COUNT(*) AS total_tickets,
+                COALESCE(SUM(cost_aed), 0) AS total_invested_aed,
+                SUM(CASE WHEN status='Продан' THEN 1 ELSE 0 END) AS sold_count,
+                SUM(CASE WHEN status='Доступен' THEN 1 ELSE 0 END) AS available_count,
+                COALESCE(SUM(CASE WHEN status='Продан' THEN cost_aed ELSE 0 END), 0) AS sold_cost_aed
+            FROM inventory WHERE event_id=?
         """, (event_id,)).fetchone()
-
         sales_row = conn.execute("""
             SELECT COALESCE(SUM(s.selling_price), 0) AS total_revenue
-            FROM sales s JOIN inventory i ON s.ticket_id = i.id
-            WHERE i.event_id = ?
+            FROM sales s JOIN inventory i ON s.ticket_id=i.id
+            WHERE i.event_id=?
         """, (event_id,)).fetchone()
-
         return {
             "total_tickets": inv["total_tickets"],
             "total_invested_aed": inv["total_invested_aed"],
@@ -407,43 +585,30 @@ def get_event_metrics(event_id: int) -> dict:
 
 
 # ──────────────────────────────────────────────
-# Sales CSV/XLSX importer
+# CSV / XLSX importer
 # ──────────────────────────────────────────────
 def parse_sales_file(uploaded_file) -> pd.DataFrame:
-    """
-    Read a sales report file (CSV with ; separator, or XLSX).
-    Expected columns (case-insensitive): Section, Row, Seat, Buyer, Contact, Market, Price
-    """
     name = uploaded_file.name.lower()
     if name.endswith(".xlsx") or name.endswith(".xls"):
         df = pd.read_excel(uploaded_file)
     else:
-        # Try semicolon-separated CSV first (total_report.csv format)
         content = uploaded_file.read()
         uploaded_file.seek(0)
         try:
             df = pd.read_csv(io.BytesIO(content), sep=";", encoding="utf-8")
         except Exception:
             df = pd.read_csv(io.BytesIO(content), sep=",", encoding="utf-8")
-
-    # Normalize column names to lowercase stripped
     df.columns = [c.strip().lower() for c in df.columns]
     return df
 
 
 def import_sales_from_df(event_id: int, df: pd.DataFrame) -> dict:
-    """
-    Match rows from sales report to inventory and create sales.
-    Returns {"imported": N, "skipped": N, "not_found": N, "revenue": float, "errors": [str]}
-    """
     result = {"imported": 0, "skipped": 0, "not_found": 0, "revenue": 0.0, "errors": []}
-
-    # Map possible column names
     col_map = {
-        "section": ["section", "sector", "сектор", "секция"],
+        "section": ["section", "sector", "сектор", "секция", "category"],
         "row": ["row", "ряд"],
         "seat": ["seat", "место", "seat_number"],
-        "buyer": ["buyer", "buyer_name", "покупатель", "имя"],
+        "buyer": ["buyer", "buyer_name", "покупатель", "имя", "customer"],
         "contact": ["contact", "buyer_contact", "контакт", "телефон", "tg"],
         "market": ["market", "рынок"],
         "price": ["price", "selling_price", "цена", "сумма"],
@@ -474,32 +639,26 @@ def import_sales_from_df(event_id: int, df: pd.DataFrame) -> dict:
         sector = str(row_data.get(sec_col, "")).strip()
         row_val = str(row_data.get(row_col, "")).strip()
         seat_val = str(row_data.get(seat_col, "")).strip()
-
         if not sector and not row_val and not seat_val:
             continue
-
         ticket = find_ticket_by_seat(event_id, sector, row_val, seat_val)
         if ticket is None:
             result["not_found"] += 1
-            result["errors"].append(f"Строка {idx + 1}: билет {sector}/{row_val}/{seat_val} не найден в БД")
+            result["errors"].append(f"Строка {idx + 1}: {sector}/{row_val}/{seat_val} не найден")
             continue
-
         if ticket["status"] == TICKET_SOLD:
             result["skipped"] += 1
             continue
-
-        buyer = str(row_data.get(buyer_col, "")) if buyer_col else ""
-        contact = str(row_data.get(contact_col, "")) if contact_col else ""
-        market = str(row_data.get(market_col, MARKET_RU)) if market_col else MARKET_RU
+        buyer = str(row_data.get(buyer_col, "")).strip() if buyer_col else ""
+        contact = str(row_data.get(contact_col, "")).strip() if contact_col else ""
+        market = str(row_data.get(market_col, MARKET_RU)).strip() if market_col else MARKET_RU
         try:
             price = float(row_data.get(price_col, 0)) if price_col else 0.0
         except (ValueError, TypeError):
             price = 0.0
-
-        create_sale(ticket["id"], buyer.strip(), contact.strip(), market.strip(), price)
+        create_sale(ticket["id"], buyer, contact, market, price)
         result["imported"] += 1
         result["revenue"] += price
-
     return result
 
 
@@ -510,64 +669,90 @@ def fmt(value: float) -> str:
     return f"{value:,.2f}".replace(",", " ")
 
 
+def _html_card(title: str, big: str, sub: str = "", css_class: str = "apple-card") -> str:
+    sub_html = f'<div class="sub-value">{sub}</div>' if sub else ""
+    return f'<div class="{css_class}"><h3>{title}</h3><div class="big-value">{big}</div>{sub_html}</div>'
+
+
+def _html_breakdown_row(label: str, value: str, cls: str = "") -> str:
+    extra = f" {cls}" if cls else ""
+    return f'<div class="row-item{extra}"><span class="label">{label}</span><span class="value">{value}</span></div>'
+
+
 def render_pricing_card(bd: PricingBreakdown) -> None:
+    css_cls = "card-ru" if bd.market == MARKET_RU else "card-kz"
     flag = "\U0001f1f7\U0001f1fa" if bd.market == MARKET_RU else "\U0001f1f0\U0001f1ff"
-    st.subheader(f"{flag} {bd.market}")
+    margin_pct = (bd.net_profit / bd.selling_price * 100) if bd.selling_price else 0
 
-    c1, c2 = st.columns(2)
-    c1.metric("Цена продажи", f"{fmt(bd.selling_price)} {bd.currency}")
-    c2.metric("Чистая прибыль", f"{fmt(bd.net_profit)} {bd.currency}")
+    # Gradient market card
+    st.markdown(
+        f'<div class="{css_cls}">'
+        f'<h3>{flag} {bd.market}</h3>'
+        f'<div class="big-value">{fmt(bd.selling_price)} {bd.currency}</div>'
+        f'<div class="sub-value">Прибыль: {fmt(bd.net_profit)} {bd.currency} ({margin_pct:.1f}%)</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
-    with st.expander("Детальный breakdown"):
-        st.markdown(f"**Закуп (AED):** {fmt(bd.cost_aed)}")
-        st.markdown(f"**Курс ЦБ:** {fmt(bd.rate_cb)}")
-        st.markdown(f"**Себестоимость ({bd.currency}):** {fmt(bd.cost_local)}")
-        st.markdown("---")
-        st.markdown(f"**Цена продажи:** {fmt(bd.selling_price)} {bd.currency}")
-        if bd.market == MARKET_RU:
-            st.markdown(f"- Налог 13%: {fmt(bd.tax_amount)} {bd.currency}")
-            st.markdown(f"- Платформа 6%: {fmt(bd.platform_fee)} {bd.currency}")
-        else:
-            st.markdown(f"- НДС 20%: {fmt(bd.tax_amount)} {bd.currency}")
-            st.markdown(f"- Партнёр 10%: {fmt(bd.partner_fee)} {bd.currency}")
-            st.markdown(f"- Платформа 6%: {fmt(bd.platform_fee)} {bd.currency}")
-        st.markdown(f"**Прибыль:** {fmt(bd.net_profit)} {bd.currency}")
-        margin = (bd.net_profit / bd.selling_price * 100) if bd.selling_price else 0
-        st.markdown(f"**Маржа:** {margin:.1f}%")
+    # Detailed breakdown
+    rows = ""
+    rows += _html_breakdown_row("Закуп (AED)", fmt(bd.cost_aed))
+    if bd.market == MARKET_RU:
+        rows += _html_breakdown_row("Курс (ЦБ + 3 руб)", f"{fmt(bd.rate_cb)} + 3 = {fmt(bd.rate_cb + 3)}")
+    else:
+        rows += _html_breakdown_row("Курс (ЦБ x 1.10)", f"{fmt(bd.rate_cb)} x 1.10 = {fmt(bd.rate_cb * 1.10)}")
+    rows += _html_breakdown_row(f"Себестоимость ({bd.currency})", fmt(bd.cost_local))
+    rows += _html_breakdown_row(f"Цена продажи ({bd.currency})", fmt(bd.selling_price), cls="total")
+    if bd.market == MARKET_RU:
+        rows += _html_breakdown_row(f"Налог 13%", f"-{fmt(bd.tax_amount)} {bd.currency}")
+        rows += _html_breakdown_row(f"Платформа 6%", f"-{fmt(bd.platform_fee)} {bd.currency}")
+    else:
+        rows += _html_breakdown_row(f"НДС 20%", f"-{fmt(bd.tax_amount)} {bd.currency}")
+        rows += _html_breakdown_row(f"Партнёр 10%", f"-{fmt(bd.partner_fee)} {bd.currency}")
+        rows += _html_breakdown_row(f"Платформа 6%", f"-{fmt(bd.platform_fee)} {bd.currency}")
+    rows += _html_breakdown_row("Чистая прибыль", f"{fmt(bd.net_profit)} {bd.currency}", cls="profit")
+
+    st.markdown(f'<div class="breakdown-list">{rows}</div>', unsafe_allow_html=True)
 
 
-def render_top_metrics(event: dict, metrics: dict, rate_cb: float) -> None:
-    """Render top-level KPI cards for the event."""
-    total_invested = metrics["total_invested_aed"]
-    sold_cost_aed = metrics["sold_cost_aed"]
-    total_revenue = metrics["total_revenue"]
-
-    # Net profit approximation: revenue minus cost of sold tickets in local currency
-    # Using RU market formula for AED→RUB conversion as primary estimate
-    sold_cost_local = sold_cost_aed * (rate_cb + PricingEngine.RU_RATE_MARKUP) if rate_cb > 0 else 0
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Всего вложено", f"{fmt(total_invested)} AED")
-    c2.metric("Продано билетов", f"{metrics['sold_count']} / {metrics['total_tickets']}")
-    c3.metric("Выручка от продаж", fmt(total_revenue))
-    c4.metric(
-        "Чистая прибыль (оценка)",
-        fmt(total_revenue - sold_cost_local) if sold_cost_local > 0 else "—",
+def render_live_badge(rates: ExchangeRates) -> None:
+    fetched = datetime.datetime.fromisoformat(rates.fetched_at)
+    time_str = fetched.strftime("%H:%M:%S")
+    is_live = rates.rub_source != "fallback" or rates.kzt_source != "fallback"
+    dot_cls = "live-dot" if is_live else "live-dot offline"
+    status = "Live" if is_live else "Offline"
+    st.markdown(
+        f'<div class="live-badge"><span class="{dot_cls}"></span>{status} &middot; {time_str}</div>',
+        unsafe_allow_html=True,
     )
 
 
 # ──────────────────────────────────────────────
-# Pages
+# Page: dashboard
 # ──────────────────────────────────────────────
 def page_dashboard(event: dict) -> None:
-    st.title(event["name"])
-    st.caption(f'{event["date"]}  \u00b7  {event["venue"]}')
+    st.markdown(f"<h1 style='font-size:36px;font-weight:800;letter-spacing:-1px;margin-bottom:0'>{event['name']}</h1>", unsafe_allow_html=True)
+    st.caption(f"{event['date']}  \u00b7  {event['venue']}")
 
-    # ── Top-level metrics ────────────────────
+    # ── Top metrics (Apple card tiles) ───────
     metrics = get_event_metrics(event["id"])
-    rate_for_metrics = event["rate_cb"] if event["rate_cb"] > 0 else FALLBACK_RATE_RUB_AED
-    render_top_metrics(event, metrics, rate_for_metrics)
-    st.markdown("---")
+    rate_for_m = event["rate_cb"] if event["rate_cb"] > 0 else FALLBACK_RATE_RUB_AED
+    sold_cost_local = metrics["sold_cost_aed"] * (rate_for_m + PricingEngine.RU_RATE_MARKUP) if rate_for_m > 0 else 0
+    net_profit_est = metrics["total_revenue"] - sold_cost_local
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(_html_card("Вложено", f'{fmt(metrics["total_invested_aed"])} AED'), unsafe_allow_html=True)
+    with c2:
+        pct = metrics["sold_count"] / metrics["total_tickets"] * 100 if metrics["total_tickets"] > 0 else 0
+        st.markdown(_html_card("Продано", f'{metrics["sold_count"]} / {metrics["total_tickets"]}', f'{pct:.0f}% реализовано'), unsafe_allow_html=True)
+    with c3:
+        st.markdown(_html_card("Выручка", fmt(metrics["total_revenue"])), unsafe_allow_html=True)
+    with c4:
+        profit_str = fmt(net_profit_est) if sold_cost_local > 0 else "\u2014"
+        st.markdown(_html_card("Чистая прибыль", profit_str, "оценка по РФ рынку"), unsafe_allow_html=True)
+
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
     tab_eco, tab_inv, tab_sales, tab_mon = st.tabs(
         ["\U0001f4ca Экономика", "\U0001f3ab Инвентарь", "\U0001f4b0 Продажи", "\U0001f50d Мониторинг"]
@@ -575,37 +760,51 @@ def page_dashboard(event: dict) -> None:
 
     # ── Tab 1: Экономика ─────────────────────
     with tab_eco:
-        st.subheader("Калькулятор цены")
-
-        # Auto-fetch rates
         rates = _get_cached_rates()
-        st.caption(
-            f"Курсы: RUB/AED = {fmt(rates.rub_per_aed)} ({rates.rub_source}) | "
-            f"KZT/AED = {fmt(rates.kzt_per_aed)} ({rates.kzt_source})"
-        )
 
-        cc, cr = st.columns(2)
+        col_badge, col_rub, col_kzt = st.columns([1, 1, 1])
+        with col_badge:
+            render_live_badge(rates)
+        with col_rub:
+            st.markdown(
+                f'<div class="live-badge">RUB/AED: <b>{fmt(rates.rub_per_aed)}</b> ({rates.rub_source})</div>',
+                unsafe_allow_html=True,
+            )
+        with col_kzt:
+            st.markdown(
+                f'<div class="live-badge">KZT/AED: <b>{fmt(rates.kzt_per_aed)}</b> ({rates.kzt_source})</div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+        cc, cr, ck = st.columns(3)
         cost_aed = cc.number_input(
-            "Цена закупа (AED)", min_value=0.0, value=100.0, step=10.0,
-            key=f"cost_{event['id']}",
+            "Цена закупа (AED)", min_value=0.0, value=100.0, step=10.0, key=f"cost_{event['id']}",
         )
-        default_rate = event["rate_cb"] if event["rate_cb"] > 0 else rates.rub_per_aed
-        rate_cb = cr.number_input(
-            "Курс ЦБ (AED \u2192 RUB)", min_value=0.0, value=default_rate, step=0.5,
-            key=f"rate_{event['id']}",
+        default_rate_rub = event["rate_cb"] if event["rate_cb"] > 0 else rates.rub_per_aed
+        rate_rub = cr.number_input(
+            "Курс ЦБ РФ (RUB/AED)", min_value=0.0, value=default_rate_rub, step=0.5, key=f"rate_{event['id']}",
         )
-        if rate_cb != event["rate_cb"]:
-            update_event_rate(event["id"], rate_cb)
+        default_rate_kzt = event.get("rate_kzt", 0.0)
+        if default_rate_kzt <= 0:
+            default_rate_kzt = rates.kzt_per_aed
+        rate_kzt = ck.number_input(
+            "Курс НБ РК (KZT/AED)", min_value=0.0, value=default_rate_kzt, step=0.5, key=f"rate_kzt_{event['id']}",
+        )
+        if rate_rub != event["rate_cb"]:
+            update_event_rate(event["id"], rate_rub)
+        if rate_kzt != event.get("rate_kzt", 0.0):
+            update_event_rate_kzt(event["id"], rate_kzt)
 
-        if cost_aed > 0 and rate_cb > 0:
-            bd_ru, bd_kz = PricingEngine.calculate_both(cost_aed, rate_cb)
+        if cost_aed > 0 and rate_rub > 0 and rate_kzt > 0:
+            bd_ru, bd_kz = PricingEngine.calculate_both(cost_aed, rate_rub, rate_kzt)
             left, right = st.columns(2)
             with left:
                 render_pricing_card(bd_ru)
             with right:
                 render_pricing_card(bd_kz)
         else:
-            st.info("Укажите цену закупа и курс ЦБ для расчёта.")
+            st.info("Укажите цену закупа и курсы ЦБ для расчёта.")
 
     # ── Tab 2: Инвентарь ─────────────────────
     with tab_inv:
@@ -624,66 +823,82 @@ def page_dashboard(event: dict) -> None:
                     st.success("Билет добавлен!")
                     st.rerun()
 
-        # ── Aggregated inventory table ───────
-        st.subheader("Сводка по категориям")
+        # ── Category cards ───────────────────
         summary = get_inventory_summary(event["id"])
         if summary:
-            rate_cb_val = event["rate_cb"] if event["rate_cb"] > 0 else FALLBACK_RATE_RUB_AED
-            agg_data = []
-            for s in summary:
-                # Potential revenue = available tickets * avg price (RU market)
-                if s["available"] > 0 and rate_cb_val > 0:
-                    bd = PricingEngine.calculate_ru(s["avg_cost_aed"], rate_cb_val)
-                    potential = round(bd.selling_price * s["available"], 2)
-                else:
-                    potential = 0.0
-                agg_data.append({
-                    "Категория": s["category"] or "(без сектора)",
-                    "Всего куплено": s["total"],
-                    "Осталось": s["available"],
-                    "Продано": s["sold"],
-                    "Ср. цена AED": s["avg_cost_aed"],
-                    "Потенц. выручка (RUB)": fmt(potential),
-                })
-            df_agg = pd.DataFrame(agg_data)
-            st.dataframe(df_agg, use_container_width=True, hide_index=True)
+            rate_rub_val = event["rate_cb"] if event["rate_cb"] > 0 else FALLBACK_RATE_RUB_AED
+            rate_kzt_val = event.get("rate_kzt", 0.0)
+            if rate_kzt_val <= 0:
+                rate_kzt_val = FALLBACK_RATE_KZT_AED
 
-            # Progress bar: % sold
+            # Overall progress
             total_all = sum(s["total"] for s in summary)
             sold_all = sum(s["sold"] for s in summary)
             pct = sold_all / total_all if total_all > 0 else 0
-            st.markdown(f"**Прогресс продаж: {sold_all} / {total_all} ({pct:.0%})**")
-            st.progress(pct)
+            st.markdown(
+                f"<div class='apple-card'>"
+                f"<h3>Прогресс продаж</h3>"
+                f"<div class='big-value'>{sold_all} / {total_all}</div>"
+                f"<div class='sub-value'>{pct:.0%} реализовано</div>"
+                f"<div class='progress-wrap'><div class='progress-fill' style='width:{pct*100:.1f}%'></div></div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Per-category cards
+            cols = st.columns(min(len(summary), 3))
+            for i, s in enumerate(summary):
+                cat_name = s["category"] or "(без сектора)"
+                potential_ru = 0.0
+                potential_kz = 0.0
+                if s["available"] > 0:
+                    if rate_rub_val > 0:
+                        bd_ru = PricingEngine.calculate_ru(s["avg_cost_aed"], rate_rub_val)
+                        potential_ru = round(bd_ru.selling_price * s["available"], 2)
+                    if rate_kzt_val > 0:
+                        bd_kz = PricingEngine.calculate_kz(s["avg_cost_aed"], rate_kzt_val)
+                        potential_kz = round(bd_kz.selling_price * s["available"], 2)
+                cat_pct = s["sold"] / s["total"] if s["total"] > 0 else 0
+
+                html = (
+                    f"<div class='cat-card'>"
+                    f"<div class='cat-title'>{cat_name}</div>"
+                    f"<div class='cat-row'><span class='cl'>Остаток</span><span class='cv'>{s['available']} шт.</span></div>"
+                    f"<div class='cat-row'><span class='cl'>Продано</span><span class='cv'>{s['sold']} шт.</span></div>"
+                    f"<div class='cat-row'><span class='cl'>Потрачено</span><span class='cv'>{fmt(s['avail_cost_aed'])} AED</span></div>"
+                    f"<div class='cat-row'><span class='cl'>Ср. закуп</span><span class='cv'>{fmt(s['avg_cost_aed'])} AED</span></div>"
+                    f"<div class='cat-row'><span class='cl'>Потенц. РФ</span><span class='cv'>{fmt(potential_ru)} RUB</span></div>"
+                    f"<div class='cat-row'><span class='cl'>Потенц. РК</span><span class='cv'>{fmt(potential_kz)} KZT</span></div>"
+                    f"<div class='progress-wrap' style='margin-top:12px'><div class='progress-fill' style='width:{cat_pct*100:.1f}%'></div></div>"
+                    f"</div>"
+                )
+                with cols[i % len(cols)]:
+                    st.markdown(html, unsafe_allow_html=True)
         else:
             st.info("Пока нет билетов. Добавьте первый выше.")
 
-        # ── Full ticket list ─────────────────
-        st.subheader("Полный список билетов")
+        # ── Full list ────────────────────────
         tickets = list_tickets(event["id"])
         if tickets:
-            df = pd.DataFrame(tickets)[["id", "sector", "row", "seat", "cost_aed", "status"]]
-            df.columns = ["ID", "Сектор", "Ряд", "Место", "Цена AED", "Статус"]
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            with st.expander("Полный список билетов"):
+                df = pd.DataFrame(tickets)[["id", "sector", "row", "seat", "cost_aed", "status"]]
+                df.columns = ["ID", "Сектор", "Ряд", "Место", "Цена AED", "Статус"]
+                st.dataframe(df, use_container_width=True, hide_index=True)
 
     # ── Tab 3: Продажи ───────────────────────
     with tab_sales:
-        # ── CSV/XLSX uploader ────────────────
         st.subheader("Загрузка продаж из файла")
         st.caption(
-            "Загрузите total_report.csv (разделитель ;) или XLSX. "
+            "Загрузите **total_report.csv** (разделитель `;`) или XLSX. "
             "Обязательные колонки: **Section**, **Row**, **Seat**. "
-            "Опционально: Buyer, Contact, Market, Price."
+            "Опционально: Buyer/Customer, Contact, Market, Price."
         )
-        uploaded = st.file_uploader(
-            "Выберите файл", type=["csv", "xlsx", "xls"],
-            key=f"upload_{event['id']}",
-        )
+        uploaded = st.file_uploader("Выберите файл", type=["csv", "xlsx", "xls"], key=f"upload_{event['id']}")
         if uploaded is not None:
             try:
                 df_upload = parse_sales_file(uploaded)
                 st.markdown(f"Прочитано **{len(df_upload)}** строк. Колонки: `{list(df_upload.columns)}`")
                 st.dataframe(df_upload.head(10), use_container_width=True, hide_index=True)
-
                 if st.button("Импортировать продажи", key=f"import_{event['id']}"):
                     result = import_sales_from_df(event["id"], df_upload)
                     if result["errors"] and result["imported"] == 0:
@@ -694,107 +909,96 @@ def page_dashboard(event: dict) -> None:
                             f"Успешно загружено **{result['imported']}** продаж, "
                             f"выручка составила **{fmt(result['revenue'])}**"
                         )
-                        if result["skipped"] > 0:
+                        if result["skipped"]:
                             st.info(f"Пропущено (уже продано): {result['skipped']}")
-                        if result["not_found"] > 0:
+                        if result["not_found"]:
                             st.warning(f"Не найдено в БД: {result['not_found']}")
                         if result["errors"]:
-                            with st.expander("Детали ошибок"):
-                                for err in result["errors"]:
-                                    st.text(err)
+                            with st.expander("Детали"):
+                                for e in result["errors"]:
+                                    st.text(e)
                         st.rerun()
             except Exception as e:
                 st.error(f"Ошибка чтения файла: {e}")
 
         st.markdown("---")
 
-        # ── Manual sale form ─────────────────
+        # Manual sale
         st.subheader("Оформить продажу вручную")
         available = list_tickets(event["id"], status=TICKET_AVAILABLE)
         if not available:
-            st.info("Нет доступных билетов для продажи.")
+            st.info("Нет доступных билетов.")
         else:
-            rate_cb_val = event["rate_cb"] if event["rate_cb"] > 0 else FALLBACK_RATE_RUB_AED
-            opts = {
-                f"#{t['id']}  {t['sector']}/{t['row']}/{t['seat']} \u2014 {t['cost_aed']} AED": t["id"]
-                for t in available
-            }
+            rate_rub_val = event["rate_cb"] if event["rate_cb"] > 0 else FALLBACK_RATE_RUB_AED
+            rate_kzt_val = event.get("rate_kzt", 0.0)
+            if rate_kzt_val <= 0:
+                rate_kzt_val = FALLBACK_RATE_KZT_AED
+            opts = {f"#{t['id']}  {t['sector']}/{t['row']}/{t['seat']} \u2014 {t['cost_aed']} AED": t["id"] for t in available}
             with st.form(f"sell_{event['id']}", clear_on_submit=True):
                 chosen = st.selectbox("Билет", list(opts.keys()))
                 s_name = st.text_input("Имя покупателя")
                 s_contact = st.text_input("Контакт (TG / Телефон)")
                 s_market = st.selectbox("Рынок", [MARKET_RU, MARKET_KZ])
-
                 auto_price = 0.0
-                if chosen and rate_cb_val > 0:
+                if chosen:
                     tid = opts[chosen]
                     tk = get_ticket(tid)
                     if tk:
-                        bd = (PricingEngine.calculate_ru if s_market == MARKET_RU
-                              else PricingEngine.calculate_kz)(tk["cost_aed"], rate_cb_val)
-                        auto_price = bd.selling_price
-                        st.markdown(f"**Рекомендованная цена:** {fmt(auto_price)} {bd.currency}")
-
-                s_price = st.number_input(
-                    "Финальная цена продажи", min_value=0.0,
-                    value=auto_price, step=100.0,
-                )
+                        if s_market == MARKET_RU and rate_rub_val > 0:
+                            bd = PricingEngine.calculate_ru(tk["cost_aed"], rate_rub_val)
+                        elif s_market == MARKET_KZ and rate_kzt_val > 0:
+                            bd = PricingEngine.calculate_kz(tk["cost_aed"], rate_kzt_val)
+                        else:
+                            bd = None
+                        if bd:
+                            auto_price = bd.selling_price
+                            st.markdown(f"**Рекомендованная цена:** {fmt(auto_price)} {bd.currency}")
+                s_price = st.number_input("Финальная цена продажи", min_value=0.0, value=auto_price, step=100.0)
                 if st.form_submit_button("Оформить продажу"):
                     if not s_name.strip():
                         st.warning("Укажите имя покупателя.")
                     elif s_price <= 0:
-                        st.warning("Укажите цену продажи.")
+                        st.warning("Укажите цену.")
                     else:
                         create_sale(opts[chosen], s_name.strip(), s_contact.strip(), s_market, s_price)
                         st.success("Продажа оформлена!")
                         st.rerun()
 
-        # ── Sales history ────────────────────
+        # Sales history
         st.subheader("История продаж")
         sales = list_sales(event["id"])
         if sales:
             df_s = pd.DataFrame(sales)[
-                ["id", "sector", "row", "seat", "buyer_name", "buyer_contact",
-                 "market", "selling_price", "cost_aed", "sold_at"]
+                ["id", "sector", "row", "seat", "buyer_name", "buyer_contact", "market", "selling_price", "cost_aed", "sold_at"]
             ]
-            df_s.columns = ["ID", "Сектор", "Ряд", "Место", "Покупатель",
-                            "Контакт", "Рынок", "Цена продажи", "Закуп AED", "Дата"]
+            df_s.columns = ["ID", "Сектор", "Ряд", "Место", "Покупатель", "Контакт", "Рынок", "Цена продажи", "Закуп AED", "Дата"]
             st.dataframe(df_s, use_container_width=True, hide_index=True)
             total = sum(s["selling_price"] for s in sales)
             total_cost = sum(s["cost_aed"] for s in sales)
             mc1, mc2, mc3 = st.columns(3)
             mc1.metric("Общая выручка", fmt(total))
             mc2.metric("Закуп (AED)", fmt(total_cost))
-            mc3.metric("Количество продаж", len(sales))
+            mc3.metric("Кол-во продаж", len(sales))
         else:
             st.info("Продаж пока нет.")
 
     # ── Tab 4: Мониторинг ────────────────────
     with tab_mon:
         st.subheader("Мониторинг рынка")
-        st.caption("Поиск предложений в TG / Avito (заглушка для будущего API)")
-
+        st.caption("Поиск предложений в TG / Avito (заглушка)")
         kw_current = event.get("keywords", "")
-        keywords = st.text_input(
-            "Ключевые слова", value=kw_current, key=f"kw_{event['id']}",
-        )
+        keywords = st.text_input("Ключевые слова", value=kw_current, key=f"kw_{event['id']}")
         if keywords != kw_current:
             update_event_keywords(event["id"], keywords)
-
         if st.button("\U0001f50d Поиск", key=f"search_{event['id']}"):
             if not keywords.strip():
                 st.warning("Введите ключевые слова.")
             else:
                 st.info(f"Поиск: **{keywords}**")
                 mock = [
-                    {"source": "Telegram", "channel": "@tickets_market",
-                     "text": f"Продаю билеты на {event['name']}", "date": "2025-01-15", "url": "#"},
-                    {"source": "Avito", "seller": "Иван П.",
-                     "text": f"{event['name']} \u2014 2 билета, сектор A", "price": "15 000 RUB",
-                     "date": "2025-01-14", "url": "#"},
-                    {"source": "Telegram", "channel": "@event_tickets_ru",
-                     "text": f"Ищу билеты на {event['name']}, куплю дорого",
-                     "date": "2025-01-13", "url": "#"},
+                    {"source": "Telegram", "text": f"Продаю билеты на {event['name']}", "date": "2025-01-15"},
+                    {"source": "Avito", "text": f"{event['name']} \u2014 2 билета, сектор A", "date": "2025-01-14"},
+                    {"source": "Telegram", "text": f"Ищу билеты на {event['name']}, куплю дорого", "date": "2025-01-13"},
                 ]
                 for i, r in enumerate(mock):
                     cols = st.columns([1, 5])
@@ -803,71 +1007,56 @@ def page_dashboard(event: dict) -> None:
                     cols[1].caption(r["date"])
                     if i < len(mock) - 1:
                         st.divider()
-
         st.markdown("---")
-        st.caption(
-            "Структура данных подготовлена: source, channel/seller, text, price, date, url. "
-            "В будущем \u2014 подключение к Telegram API и парсинг Avito."
-        )
+        st.caption("В будущем \u2014 подключение к Telegram API и парсинг Avito.")
 
 
-def _get_cached_rates() -> ExchangeRates:
-    """Fetch exchange rates with Streamlit caching (5 min TTL)."""
-    if "exchange_rates" not in st.session_state:
-        st.session_state["exchange_rates"] = fetch_exchange_rates()
-        st.session_state["rates_fetched_at"] = datetime.datetime.now()
-    else:
-        elapsed = datetime.datetime.now() - st.session_state["rates_fetched_at"]
-        if elapsed.total_seconds() > 300:
-            st.session_state["exchange_rates"] = fetch_exchange_rates()
-            st.session_state["rates_fetched_at"] = datetime.datetime.now()
-    return st.session_state["exchange_rates"]
-
-
+# ──────────────────────────────────────────────
+# Sidebar
+# ──────────────────────────────────────────────
 def sidebar() -> int | None:
-    """Боковая панель: список событий + создание нового."""
     st.sidebar.title("\U0001f3ab Ticket Resale")
-
-    # Show current exchange rates in sidebar
     rates = _get_cached_rates()
-    st.sidebar.caption(
-        f"RUB/AED: {fmt(rates.rub_per_aed)} ({rates.rub_source})\n\n"
-        f"KZT/AED: {fmt(rates.kzt_per_aed)} ({rates.kzt_source})"
-    )
-    if st.sidebar.button("Обновить курсы", key="refresh_rates"):
-        st.session_state.pop("exchange_rates", None)
-        st.session_state.pop("rates_fetched_at", None)
-        st.rerun()
-
+    render_sidebar_rates(rates)
     st.sidebar.markdown("---")
 
-    # Создание события
     with st.sidebar.expander("\u2795 Создать событие", expanded=False):
         with st.form("new_event", clear_on_submit=True):
             e_name = st.text_input("Название")
             e_date = st.date_input("Дата", value=datetime.date.today())
             e_venue = st.text_input("Место проведения")
-            e_rate = st.number_input(
-                "Базовый курс ЦБ (RUB/AED)", min_value=0.0,
-                value=rates.rub_per_aed, step=0.5,
-            )
+            e_rate = st.number_input("Курс ЦБ РФ (RUB/AED)", min_value=0.0, value=rates.rub_per_aed, step=0.5)
+            e_rate_kzt = st.number_input("Курс НБ РК (KZT/AED)", min_value=0.0, value=rates.kzt_per_aed, step=0.5)
             e_kw = st.text_input("Ключевые слова")
             if st.form_submit_button("Создать"):
                 if not e_name.strip():
                     st.warning("Укажите название.")
                 else:
-                    new_id = create_event(e_name.strip(), str(e_date), e_venue.strip(), e_rate, e_kw.strip())
+                    new_id = create_event(e_name.strip(), str(e_date), e_venue.strip(), e_rate, e_rate_kzt, e_kw.strip())
                     st.success(f"Событие #{new_id} создано!")
                     st.rerun()
 
     events = list_events()
     if not events:
         return None
-
     st.sidebar.markdown("### Активные события")
     emap = {f"{e['name']} ({e['date']})": e["id"] for e in events}
     chosen = st.sidebar.radio("Выберите событие", list(emap.keys()), label_visibility="collapsed")
     return emap[chosen] if chosen else None
+
+
+def render_sidebar_rates(rates: ExchangeRates) -> None:
+    is_live = rates.rub_source != "fallback" or rates.kzt_source != "fallback"
+    dot = "\U0001f7e2" if is_live else "\U0001f7e0"
+    fetched = datetime.datetime.fromisoformat(rates.fetched_at)
+    st.sidebar.caption(
+        f"{dot} {'Live' if is_live else 'Offline'} \u00b7 {fetched.strftime('%H:%M:%S')}\n\n"
+        f"RUB/AED: **{fmt(rates.rub_per_aed)}** ({rates.rub_source})\n\n"
+        f"KZT/AED: **{fmt(rates.kzt_per_aed)}** ({rates.kzt_source})"
+    )
+    if st.sidebar.button("Обновить курсы", key="refresh_rates"):
+        st.session_state.pop("exchange_rates", None)
+        st.rerun()
 
 
 # ──────────────────────────────────────────────
@@ -875,13 +1064,18 @@ def sidebar() -> int | None:
 # ──────────────────────────────────────────────
 def main() -> None:
     st.set_page_config(page_title="Ticket Resale MVP", page_icon="\U0001f3ab", layout="wide")
+    st.markdown(APPLE_CSS, unsafe_allow_html=True)
     init_db()
 
     selected_id = sidebar()
-
     if selected_id is None:
-        st.title("Ticket Resale MVP")
-        st.info("Создайте первое событие через боковую панель, чтобы начать работу.")
+        st.markdown(
+            "<div style='text-align:center;padding:80px 0'>"
+            "<h1 style='font-size:48px;font-weight:800;letter-spacing:-1.5px'>Ticket Resale</h1>"
+            "<p style='font-size:18px;color:#86868B'>Создайте первое событие через боковую панель</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
         return
 
     event = get_event(selected_id)
