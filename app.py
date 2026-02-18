@@ -1,7 +1,7 @@
 """
-Ticket Resale MVP - Event-Centric Workspace
-=============================================
-Streamlit + SQLite. Apple Card aesthetic.
+Ticket Resale MVP — Event-Centric Workspace
+============================================
+Streamlit + SQLite. Notion-style aesthetic.
 
 Запуск:  streamlit run app.py
 БД:      tickets_vibe.db (автоматически)
@@ -40,352 +40,310 @@ FALLBACK_RATE_KZT_AED = 125.0
 CBR_DAILY_URL = "https://www.cbr.ru/scripts/XML_daily.asp"
 NBK_RATES_URL = "https://www.nationalbank.kz/rss/get_rates.xml"
 
+# Виртуальная наценка для рынка РФ: x1.111 позволяет давать скидку 10%
+# не теряя итоговой маржи (1.111 × 0.9 ≈ 1.0)
+VIRTUAL_MARKUP_COEFF = 1.111
+
 
 # ──────────────────────────────────────────────
-# Apple Card CSS
+# Notion CSS
 # ──────────────────────────────────────────────
-APPLE_CSS = """
+NOTION_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 /* ═══════════════════════════════════════════
-   FORCE LIGHT MODE — override Streamlit dark
+   FORCE LIGHT MODE
    ═══════════════════════════════════════════ */
-:root {
-    color-scheme: light !important;
-}
+:root { color-scheme: light !important; }
 
 /* ── Global ───────────────────────────── */
 .stApp,
 .stApp > header,
 .stApp [data-testid="stAppViewContainer"],
 .stApp [data-testid="stAppViewBlockContainer"] {
-    background-color: #F5F5F7 !important;
-    color: #1D1D1F !important;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif !important;
+    background-color: #FFFFFF !important;
+    color: #37352F !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
 }
 
 /* ── Sidebar ──────────────────────────── */
 section[data-testid="stSidebar"],
 section[data-testid="stSidebar"] > div {
-    background-color: #FFFFFF !important;
-    border-right: 1px solid #E5E5EA !important;
+    background-color: #F7F6F3 !important;
+    border-right: 1px solid #EDEFEF !important;
 }
-section[data-testid="stSidebar"] * {
-    color: #1D1D1F !important;
-}
-section[data-testid="stSidebar"] .stMarkdown h1,
-section[data-testid="stSidebar"] h1 {
-    font-weight: 800 !important;
-    letter-spacing: -0.5px;
-    color: #1D1D1F !important;
-}
+section[data-testid="stSidebar"] * { color: #37352F !important; }
 section[data-testid="stSidebar"] .stMarkdown p,
 section[data-testid="stSidebar"] .stCaption,
-section[data-testid="stSidebar"] small {
-    color: #6E6E73 !important;
-}
+section[data-testid="stSidebar"] small { color: #9B9A97 !important; }
 
-/* ── All text: force dark on light ───── */
+/* ── Text ─────────────────────────────── */
 .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
-    color: #1D1D1F !important;
+    color: #37352F !important;
+    font-weight: 600;
 }
-.stApp p, .stApp span, .stApp label, .stApp div {
-    color: #1D1D1F;
-}
-.stApp .stCaption, .stApp small, .stApp .stCaption p {
-    color: #86868B !important;
-}
-.stMarkdown, .stMarkdown p {
-    color: #1D1D1F !important;
-}
+.stApp p, .stApp span, .stApp label, .stApp div { color: #37352F; }
+.stApp .stCaption, .stApp small, .stApp .stCaption p { color: #9B9A97 !important; }
+.stMarkdown, .stMarkdown p { color: #37352F !important; }
 
-/* ── Form inputs ─────────────────────── */
+/* ── Inputs ───────────────────────────── */
 .stApp input, .stApp textarea {
     background-color: #FFFFFF !important;
-    color: #1D1D1F !important;
-    border: 1.5px solid #D2D2D7 !important;
-    border-radius: 10px !important;
-    caret-color: #1D1D1F !important;
+    color: #37352F !important;
+    border: 1px solid #EDEFEF !important;
+    border-radius: 4px !important;
+    caret-color: #37352F !important;
 }
 .stApp input:focus, .stApp textarea:focus {
-    border-color: #0071E3 !important;
-    box-shadow: 0 0 0 3px rgba(0,113,227,0.15) !important;
+    border-color: #37352F !important;
+    box-shadow: 0 0 0 2px rgba(55,53,47,0.1) !important;
 }
-.stApp input::placeholder, .stApp textarea::placeholder {
-    color: #AEAEB2 !important;
-}
-.stApp label, .stApp .stTextInput label, .stApp .stNumberInput label,
-.stApp .stSelectbox label, .stApp .stFileUploader label {
-    color: #1D1D1F !important;
+.stApp input::placeholder, .stApp textarea::placeholder { color: #C4C2BF !important; }
+.stApp label,
+.stApp .stTextInput label,
+.stApp .stNumberInput label,
+.stApp .stSelectbox label,
+.stApp .stFileUploader label {
+    color: #37352F !important;
     font-weight: 500 !important;
+    font-size: 13px !important;
 }
 
-/* ── Selectbox / dropdown ────────────── */
+/* ── Selectbox ───────────────────────── */
 .stApp [data-baseweb="select"],
 .stApp [data-baseweb="select"] > div {
     background-color: #FFFFFF !important;
-    color: #1D1D1F !important;
-    border-color: #D2D2D7 !important;
-    border-radius: 10px !important;
+    color: #37352F !important;
+    border-color: #EDEFEF !important;
+    border-radius: 4px !important;
 }
-.stApp [data-baseweb="select"] span {
-    color: #1D1D1F !important;
-}
+.stApp [data-baseweb="select"] span { color: #37352F !important; }
 .stApp [data-baseweb="popover"],
 .stApp [data-baseweb="menu"],
 .stApp [role="listbox"] {
     background-color: #FFFFFF !important;
-    border: 1px solid #D2D2D7 !important;
-    border-radius: 12px !important;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.12) !important;
+    border: 1px solid #EDEFEF !important;
+    border-radius: 6px !important;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08) !important;
 }
 .stApp [data-baseweb="menu"] [role="option"],
-.stApp [role="listbox"] li {
-    color: #1D1D1F !important;
-}
+.stApp [role="listbox"] li { color: #37352F !important; }
 .stApp [data-baseweb="menu"] [role="option"]:hover,
-.stApp [role="listbox"] li:hover {
-    background-color: #F5F5F7 !important;
-}
+.stApp [role="listbox"] li:hover { background-color: #F7F6F3 !important; }
 
-/* ── Number input steppers ───────────── */
+/* ── Number input ─────────────────────── */
 .stApp [data-testid="stNumberInput"] button,
 .stApp .step-up, .stApp .step-down {
-    background-color: #F5F5F7 !important;
-    color: #1D1D1F !important;
-    border-color: #D2D2D7 !important;
+    background-color: #F7F6F3 !important;
+    color: #37352F !important;
+    border-color: #EDEFEF !important;
 }
 
-/* ── Buttons ─────────────────────────── */
+/* ── Buttons ──────────────────────────── */
 .stApp .stButton > button {
-    background-color: #0071E3 !important;
+    background-color: #37352F !important;
     color: #FFFFFF !important;
     border: none !important;
-    border-radius: 10px !important;
-    font-weight: 600 !important;
-    padding: 8px 20px !important;
-    transition: background 0.2s ease !important;
+    border-radius: 4px !important;
+    font-weight: 500 !important;
+    font-size: 14px !important;
+    padding: 6px 16px !important;
+    transition: opacity 0.15s ease !important;
 }
-.stApp .stButton > button:hover {
-    background-color: #0077ED !important;
-}
+.stApp .stButton > button:hover { opacity: 0.82 !important; }
 .stApp .stFormSubmitButton > button {
-    background-color: #0071E3 !important;
+    background-color: #37352F !important;
     color: #FFFFFF !important;
     border: none !important;
-    border-radius: 10px !important;
-    font-weight: 600 !important;
+    border-radius: 4px !important;
+    font-weight: 500 !important;
 }
-.stApp .stFormSubmitButton > button:hover {
-    background-color: #0077ED !important;
-}
-/* Sidebar buttons: subtle */
+.stApp .stFormSubmitButton > button:hover { opacity: 0.82 !important; }
+
+/* Secondary / sidebar buttons */
 section[data-testid="stSidebar"] .stButton > button {
-    background-color: #F5F5F7 !important;
-    color: #1D1D1F !important;
-    border: 1px solid #D2D2D7 !important;
+    background-color: #FFFFFF !important;
+    color: #37352F !important;
+    border: 1px solid #EDEFEF !important;
 }
 section[data-testid="stSidebar"] .stButton > button:hover {
-    background-color: #E8E8ED !important;
+    background-color: #F7F6F3 !important;
 }
 
-/* ── Radio buttons ───────────────────── */
-.stApp [data-testid="stRadio"] label {
-    color: #1D1D1F !important;
-}
-.stApp [role="radiogroup"] label span {
-    color: #1D1D1F !important;
-}
+/* ── Radio ────────────────────────────── */
+.stApp [data-testid="stRadio"] label { color: #37352F !important; }
+.stApp [role="radiogroup"] label span { color: #37352F !important; }
 
-/* ── Expander ────────────────────────── */
+/* ── Expander ─────────────────────────── */
 .stApp [data-testid="stExpander"] {
     background-color: #FFFFFF !important;
-    border: 1px solid #E5E5EA !important;
-    border-radius: 12px !important;
+    border: 1px solid #EDEFEF !important;
+    border-radius: 6px !important;
 }
 .stApp [data-testid="stExpander"] summary,
 .stApp [data-testid="stExpander"] summary span {
-    color: #1D1D1F !important;
-    font-weight: 600 !important;
+    color: #37352F !important;
+    font-weight: 500 !important;
 }
 section[data-testid="stSidebar"] [data-testid="stExpander"] {
-    background-color: #F9F9FB !important;
-    border: 1px solid #E5E5EA !important;
+    background-color: #F7F6F3 !important;
+    border: 1px solid #EDEFEF !important;
 }
 
-/* ── Dataframes / tables ─────────────── */
+/* ── Dataframe ────────────────────────── */
 .stApp [data-testid="stDataFrame"],
 .stApp .stDataFrame {
     background-color: #FFFFFF !important;
-    border-radius: 12px !important;
-    border: 1px solid #E5E5EA !important;
+    border-radius: 6px !important;
+    border: 1px solid #EDEFEF !important;
 }
 
-/* ── Alerts ──────────────────────────── */
-.stApp .stAlert {
-    border-radius: 12px !important;
-}
-.stApp [data-testid="stNotification"] {
-    background-color: #FFFFFF !important;
-    border-radius: 12px !important;
-}
+/* ── Alerts ───────────────────────────── */
+.stApp .stAlert { border-radius: 6px !important; }
 
-/* ── File uploader ───────────────────── */
+/* ── File uploader ────────────────────── */
 .stApp [data-testid="stFileUploader"],
 .stApp [data-testid="stFileUploader"] section {
     background-color: #FFFFFF !important;
-    border-color: #D2D2D7 !important;
-    border-radius: 12px !important;
+    border-color: #EDEFEF !important;
+    border-radius: 6px !important;
 }
 .stApp [data-testid="stFileUploader"] span,
-.stApp [data-testid="stFileUploader"] small {
-    color: #6E6E73 !important;
-}
+.stApp [data-testid="stFileUploader"] small { color: #9B9A97 !important; }
 
-/* ── Divider / hr ────────────────────── */
-.stApp hr {
-    border-color: #E5E5EA !important;
-}
+/* ── Divider ──────────────────────────── */
+.stApp hr { border-color: #EDEFEF !important; }
 
 
 /* ═══════════════════════════════════════════
-   CUSTOM COMPONENTS
+   CUSTOM COMPONENTS — Notion aesthetic
    ═══════════════════════════════════════════ */
 
-/* ── Card tile ────────────────────────── */
-.apple-card {
+/* ── Metric card ──────────────────────── */
+.notion-card {
     background: #FFFFFF;
-    border-radius: 16px;
-    padding: 24px 28px;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-    margin-bottom: 16px;
-    border: 1px solid rgba(0,0,0,0.04);
+    border-radius: 6px;
+    padding: 20px 24px;
+    border: 1px solid #EDEFEF;
+    margin-bottom: 12px;
 }
-.apple-card h3 {
-    margin: 0 0 12px 0;
-    font-size: 15px;
-    font-weight: 600;
-    color: #86868B !important;
+.notion-card h3 {
+    margin: 0 0 8px 0;
+    font-size: 12px;
+    font-weight: 500;
+    color: #9B9A97 !important;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
-.apple-card .big-value {
-    font-size: 34px;
+.notion-card .big-value {
+    font-size: 28px;
     font-weight: 700;
-    color: #1D1D1F !important;
-    line-height: 1.1;
+    color: #37352F !important;
+    line-height: 1.2;
     letter-spacing: -0.5px;
 }
-.apple-card .sub-value {
-    font-size: 14px;
-    color: #86868B !important;
+.notion-card .sub-value {
+    font-size: 13px;
+    color: #9B9A97 !important;
     margin-top: 4px;
 }
 
-/* ── Gradient market cards ────────────── */
-.card-ru {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: 20px;
-    padding: 28px 32px;
-    color: #FFFFFF !important;
-    box-shadow: 0 8px 24px rgba(102,126,234,0.25);
-    margin-bottom: 16px;
+/* ── Market pricing card (flat, no gradient) ── */
+.card-ru, .card-kz {
+    background: #FFFFFF;
+    border-radius: 6px;
+    border: 1px solid #EDEFEF;
+    border-left: 3px solid #37352F;
+    padding: 20px 24px;
+    margin-bottom: 10px;
 }
-.card-kz {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    border-radius: 20px;
-    padding: 28px 32px;
-    color: #FFFFFF !important;
-    box-shadow: 0 8px 24px rgba(245,87,108,0.25);
-    margin-bottom: 16px;
-}
-.card-ru *, .card-kz * {
-    color: #FFFFFF !important;
-}
+.card-kz { border-left-color: #9B9A97; }
+.card-ru *, .card-kz * { color: #37352F !important; }
 .card-ru h3, .card-kz h3 {
     margin: 0 0 6px 0;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 600;
-    opacity: 0.9;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: #FFFFFF !important;
+    color: #9B9A97 !important;
 }
 .card-ru .big-value, .card-kz .big-value {
-    font-size: 32px;
+    font-size: 26px;
     font-weight: 700;
-    line-height: 1.15;
-    letter-spacing: -0.5px;
-    color: #FFFFFF !important;
+    line-height: 1.2;
+    color: #37352F !important;
 }
 .card-ru .sub-value, .card-kz .sub-value {
     font-size: 13px;
-    opacity: 0.85;
+    color: #9B9A97 !important;
     margin-top: 4px;
-    color: #FFFFFF !important;
 }
 
 /* ── Breakdown list ───────────────────── */
 .breakdown-list {
-    background: #FFFFFF;
-    border-radius: 16px;
-    padding: 20px 24px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-    border: 1px solid rgba(0,0,0,0.04);
-    margin-top: 12px;
+    background: #F7F6F3;
+    border-radius: 6px;
+    padding: 14px 18px;
+    border: 1px solid #EDEFEF;
+    margin-top: 8px;
 }
 .breakdown-list .row-item {
     display: flex;
     justify-content: space-between;
-    padding: 8px 0;
-    font-size: 14px;
-    border-bottom: 1px solid #F5F5F7;
+    padding: 5px 0;
+    font-size: 13px;
+    border-bottom: 1px solid #EDEFEF;
 }
 .breakdown-list .row-item:last-child { border-bottom: none; }
-.breakdown-list .row-item .label { color: #86868B !important; }
-.breakdown-list .row-item .value { font-weight: 600; color: #1D1D1F !important; }
-.breakdown-list .row-item.total { border-top: 2px solid #E5E5EA; padding-top: 12px; margin-top: 4px; }
+.breakdown-list .row-item .label { color: #9B9A97 !important; }
+.breakdown-list .row-item .value { font-weight: 600; color: #37352F !important; }
+.breakdown-list .row-item.total {
+    border-top: 1px solid #D3D0CB;
+    padding-top: 8px;
+    margin-top: 4px;
+}
 .breakdown-list .row-item.total .label,
-.breakdown-list .row-item.total .value { font-weight: 700; color: #1D1D1F !important; }
-.breakdown-list .row-item.profit .value { color: #34C759 !important; font-weight: 700; }
+.breakdown-list .row-item.total .value { font-weight: 700; color: #37352F !important; }
+.breakdown-list .row-item.profit .value { color: #0F7B0F !important; font-weight: 700; }
+.breakdown-list .row-item.virtual { background: #F0FBF0; border-radius: 3px; padding: 5px 4px; }
+.breakdown-list .row-item.virtual .value { color: #0F7B0F !important; font-style: italic; }
 
 /* ── Category card (inventory) ────────── */
 .cat-card {
     background: #FFFFFF;
-    border-radius: 16px;
-    padding: 20px 24px;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-    border: 1px solid rgba(0,0,0,0.04);
+    border-radius: 6px;
+    padding: 16px 20px;
+    border: 1px solid #EDEFEF;
     margin-bottom: 12px;
 }
 .cat-card .cat-title {
-    font-size: 18px;
-    font-weight: 700;
-    color: #1D1D1F !important;
-    margin-bottom: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #37352F !important;
+    margin-bottom: 10px;
 }
 .cat-card .cat-row {
     display: flex;
     justify-content: space-between;
-    padding: 6px 0;
-    font-size: 14px;
+    padding: 5px 0;
+    font-size: 13px;
 }
-.cat-card .cat-row .cl { color: #86868B !important; }
-.cat-card .cat-row .cv { font-weight: 600; color: #1D1D1F !important; }
+.cat-card .cat-row .cl { color: #9B9A97 !important; }
+.cat-card .cat-row .cv { font-weight: 500; color: #37352F !important; }
 
 /* ── Progress bar ─────────────────────── */
 .progress-wrap {
-    background: #E5E5EA;
-    border-radius: 8px;
-    height: 10px;
+    background: #EDEFEF;
+    border-radius: 4px;
+    height: 5px;
     overflow: hidden;
     margin-top: 8px;
 }
 .progress-fill {
     height: 100%;
-    border-radius: 8px;
-    background: linear-gradient(90deg, #34C759 0%, #30D158 100%);
+    border-radius: 4px;
+    background: #0F7B0F;
     transition: width 0.4s ease;
 }
 
@@ -395,72 +353,63 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] {
     align-items: center;
     gap: 6px;
     background: #FFFFFF;
-    border: 1px solid #E5E5EA;
-    border-radius: 20px;
-    padding: 6px 14px;
+    border: 1px solid #EDEFEF;
+    border-radius: 4px;
+    padding: 5px 12px;
     font-size: 12px;
     font-weight: 500;
-    color: #6E6E73 !important;
+    color: #9B9A97 !important;
 }
-.live-badge b {
-    color: #1D1D1F !important;
-    font-weight: 700;
-}
+.live-badge b { color: #37352F !important; font-weight: 600; }
 .live-dot {
     width: 6px; height: 6px;
     border-radius: 50%;
-    background: #34C759;
+    background: #0F7B0F;
     display: inline-block;
 }
-.live-dot.offline { background: #FF9500; }
+.live-dot.offline { background: #E03E3E; }
 
 /* ── Streamlit metrics ───────────────── */
 [data-testid="stMetric"] {
     background: #FFFFFF !important;
-    border-radius: 12px !important;
+    border-radius: 6px !important;
     padding: 16px !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
-    border: 1px solid rgba(0,0,0,0.04) !important;
+    border: 1px solid #EDEFEF !important;
 }
-[data-testid="stMetric"] label {
-    color: #86868B !important;
-}
-[data-testid="stMetric"] [data-testid="stMetricValue"] {
-    color: #1D1D1F !important;
-}
+[data-testid="stMetric"] label { color: #9B9A97 !important; }
+[data-testid="stMetric"] [data-testid="stMetricValue"] { color: #37352F !important; }
 
-/* ── Tabs styling ─────────────────────── */
+/* ── Tabs ─────────────────────────────── */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 4px;
-    background: #FFFFFF;
-    border-radius: 12px;
-    padding: 4px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-    border: 1px solid #E5E5EA;
+    gap: 0;
+    background: transparent;
+    border-bottom: 1px solid #EDEFEF;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
 }
 .stTabs [data-baseweb="tab"] {
-    border-radius: 8px !important;
-    font-weight: 600 !important;
+    border-radius: 0 !important;
+    font-weight: 500 !important;
     font-size: 14px !important;
-    color: #6E6E73 !important;
+    color: #9B9A97 !important;
     background-color: transparent !important;
+    border-bottom: 2px solid transparent !important;
+    padding: 8px 16px !important;
 }
 .stTabs [data-baseweb="tab"][aria-selected="true"] {
-    background-color: #F5F5F7 !important;
-    color: #1D1D1F !important;
+    background-color: transparent !important;
+    color: #37352F !important;
+    border-bottom: 2px solid #37352F !important;
 }
-.stTabs [data-baseweb="tab-highlight"] {
-    background-color: #0071E3 !important;
-}
-.stTabs [data-baseweb="tab-border"] {
-    display: none !important;
-}
+.stTabs [data-baseweb="tab-highlight"] { display: none !important; }
+.stTabs [data-baseweb="tab-border"] { display: none !important; }
 
-/* ── Scrollbar (light) ───────────────── */
+/* ── Scrollbar ────────────────────────── */
 .stApp ::-webkit-scrollbar { width: 6px; height: 6px; }
-.stApp ::-webkit-scrollbar-track { background: #F5F5F7; }
-.stApp ::-webkit-scrollbar-thumb { background: #C7C7CC; border-radius: 3px; }
-.stApp ::-webkit-scrollbar-thumb:hover { background: #AEAEB2; }
+.stApp ::-webkit-scrollbar-track { background: #F7F6F3; }
+.stApp ::-webkit-scrollbar-thumb { background: #D3D0CB; border-radius: 3px; }
+.stApp ::-webkit-scrollbar-thumb:hover { background: #9B9A97; }
 </style>
 """
 
@@ -503,7 +452,6 @@ def _parse_nbk_rate() -> float | None:
     try:
         data = _fetch_url(NBK_RATES_URL)
         root = ET.fromstring(data)
-        # NBK get_rates.cfm returns <rates><item>...</item></rates>
         for item in root.iter("item"):
             title = item.findtext("title", "").strip()
             if title == "AED":
@@ -626,11 +574,16 @@ def get_db() -> Iterator[sqlite3.Connection]:
 
 def init_db() -> None:
     with get_db() as conn:
-        # Migration: add rate_kzt column if missing
-        try:
-            conn.execute("ALTER TABLE events ADD COLUMN rate_kzt REAL NOT NULL DEFAULT 0.0")
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        # Migrations: add columns if missing
+        for migration in [
+            "ALTER TABLE events ADD COLUMN rate_kzt REAL NOT NULL DEFAULT 0.0",
+            "ALTER TABLE inventory ADD COLUMN platform TEXT NOT NULL DEFAULT ''",
+        ]:
+            try:
+                conn.execute(migration)
+            except sqlite3.OperationalError:
+                pass  # column already exists
+
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -649,6 +602,7 @@ def init_db() -> None:
                 row TEXT NOT NULL DEFAULT '',
                 seat TEXT NOT NULL DEFAULT '',
                 cost_aed REAL NOT NULL DEFAULT 0.0,
+                platform TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL DEFAULT 'Доступен',
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
@@ -701,11 +655,11 @@ def update_event_keywords(event_id: int, keywords: str) -> None:
 
 
 # ── Inventory ────────────────────────────────
-def add_ticket(event_id: int, sector: str, row: str, seat: str, cost_aed: float) -> int:
+def add_ticket(event_id: int, sector: str, row: str, seat: str, cost_aed: float, platform: str = "") -> int:
     with get_db() as conn:
         cur = conn.execute(
-            "INSERT INTO inventory (event_id, sector, row, seat, cost_aed) VALUES (?,?,?,?,?)",
-            (event_id, sector, row, seat, cost_aed),
+            "INSERT INTO inventory (event_id, sector, row, seat, cost_aed, platform) VALUES (?,?,?,?,?,?)",
+            (event_id, sector, row, seat, cost_aed, platform),
         )
         return cur.lastrowid  # type: ignore[return-value]
 
@@ -746,15 +700,22 @@ def find_ticket_by_seat(event_id: int, sector: str, row: str, seat: str) -> dict
 # ── Sales ────────────────────────────────────
 def create_sale(
     ticket_id: int, buyer_name: str, buyer_contact: str,
-    market: str, selling_price: float,
+    market: str, selling_price: float, sold_at: str | None = None,
 ) -> int:
     with get_db() as conn:
         conn.execute("UPDATE inventory SET status=? WHERE id=?", (TICKET_SOLD, ticket_id))
-        cur = conn.execute(
-            "INSERT INTO sales (ticket_id, buyer_name, buyer_contact, market, selling_price) "
-            "VALUES (?,?,?,?,?)",
-            (ticket_id, buyer_name, buyer_contact, market, selling_price),
-        )
+        if sold_at:
+            cur = conn.execute(
+                "INSERT INTO sales (ticket_id, buyer_name, buyer_contact, market, selling_price, sold_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (ticket_id, buyer_name, buyer_contact, market, selling_price, sold_at),
+            )
+        else:
+            cur = conn.execute(
+                "INSERT INTO sales (ticket_id, buyer_name, buyer_contact, market, selling_price) "
+                "VALUES (?,?,?,?,?)",
+                (ticket_id, buyer_name, buyer_contact, market, selling_price),
+            )
         return cur.lastrowid  # type: ignore[return-value]
 
 
@@ -813,7 +774,7 @@ def get_event_metrics(event_id: int) -> dict:
 
 
 # ──────────────────────────────────────────────
-# CSV / XLSX importer
+# CSV / XLSX importer — Яндекс Афиша + universal
 # ──────────────────────────────────────────────
 def parse_sales_file(uploaded_file) -> pd.DataFrame:
     name = uploaded_file.name.lower()
@@ -822,24 +783,58 @@ def parse_sales_file(uploaded_file) -> pd.DataFrame:
     else:
         content = uploaded_file.read()
         uploaded_file.seek(0)
-        try:
-            df = pd.read_csv(io.BytesIO(content), sep=";", encoding="utf-8")
-        except Exception:
-            df = pd.read_csv(io.BytesIO(content), sep=",", encoding="utf-8")
+        # Try common separators and encodings (incl. Russian Windows and Yandex Afisha BOM)
+        parsed = None
+        for sep in [";", ","]:
+            for enc in ["utf-8-sig", "utf-8", "cp1251", "windows-1251"]:
+                try:
+                    candidate = pd.read_csv(io.BytesIO(content), sep=sep, encoding=enc)
+                    if len(candidate.columns) > 1:
+                        parsed = candidate
+                        break
+                except Exception:
+                    continue
+            if parsed is not None:
+                break
+        if parsed is None:
+            parsed = pd.read_csv(io.BytesIO(content), sep=";", encoding="utf-8", errors="replace")
+        df = parsed
     df.columns = [c.strip().lower() for c in df.columns]
     return df
 
 
 def import_sales_from_df(event_id: int, df: pd.DataFrame) -> dict:
     result = {"imported": 0, "skipped": 0, "not_found": 0, "revenue": 0.0, "errors": []}
+
+    # Extended aliases: universal + Яндекс Афиша column names
     col_map = {
-        "section": ["section", "sector", "сектор", "секция", "category"],
+        "section": [
+            "section", "sector", "сектор", "секция", "category",
+            "зона", "трибуна", "место проведения",
+        ],
         "row": ["row", "ряд"],
-        "seat": ["seat", "место", "seat_number"],
-        "buyer": ["buyer", "buyer_name", "покупатель", "имя", "customer"],
-        "contact": ["contact", "buyer_contact", "контакт", "телефон", "tg"],
+        "seat": [
+            "seat", "место", "seat_number", "номер места", "кресло",
+        ],
+        "buyer": [
+            "buyer", "buyer_name", "покупатель", "имя", "customer",
+            "имя покупателя", "фио покупателя",
+        ],
+        "contact": [
+            "contact", "buyer_contact", "контакт", "телефон", "tg",
+            "телефон покупателя", "email покупателя", "email",
+        ],
         "market": ["market", "рынок"],
-        "price": ["price", "selling_price", "цена", "сумма"],
+        "price": [
+            "price", "selling_price", "цена", "сумма", "сумма продажи",
+            "итого", "стоимость", "итоговая сумма",
+        ],
+        "face_value": ["номинал", "face value", "face_value", "номинальная цена"],
+        "sale_date": [
+            "дата/время создания заказа", "дата создания заказа",
+            "дата продажи", "date", "sold_at", "дата заказа",
+            "дата оформления", "дата и время заказа",
+        ],
     }
 
     def find_col(key: str) -> str | None:
@@ -855,11 +850,13 @@ def import_sales_from_df(event_id: int, df: pd.DataFrame) -> dict:
     contact_col = find_col("contact")
     market_col = find_col("market")
     price_col = find_col("price")
+    date_col = find_col("sale_date")
 
     if not all([sec_col, row_col, seat_col]):
         result["errors"].append(
-            f"Не найдены обязательные колонки Section/Row/Seat. "
-            f"Колонки файла: {list(df.columns)}"
+            f"Не найдены обязательные колонки Сектор/Ряд/Место. "
+            f"Колонки файла: {list(df.columns)}. "
+            f"Для Яндекс Афиши убедитесь, что экспорт содержит колонки 'Сектор', 'Ряд', 'Место'."
         )
         return result
 
@@ -872,7 +869,7 @@ def import_sales_from_df(event_id: int, df: pd.DataFrame) -> dict:
         ticket = find_ticket_by_seat(event_id, sector, row_val, seat_val)
         if ticket is None:
             result["not_found"] += 1
-            result["errors"].append(f"Строка {idx + 1}: {sector}/{row_val}/{seat_val} не найден")
+            result["errors"].append(f"Строка {idx + 1}: {sector}/{row_val}/{seat_val} не найден в БД")
             continue
         if ticket["status"] == TICKET_SOLD:
             result["skipped"] += 1
@@ -884,7 +881,13 @@ def import_sales_from_df(event_id: int, df: pd.DataFrame) -> dict:
             price = float(row_data.get(price_col, 0)) if price_col else 0.0
         except (ValueError, TypeError):
             price = 0.0
-        create_sale(ticket["id"], buyer, contact, market, price)
+        # Extract sale date from Yandex Afisha if available
+        sold_at = None
+        if date_col:
+            date_str = str(row_data.get(date_col, "")).strip()
+            if date_str and date_str.lower() not in ("nan", "", "none"):
+                sold_at = date_str
+        create_sale(ticket["id"], buyer, contact, market, price, sold_at=sold_at)
         result["imported"] += 1
         result["revenue"] += price
     return result
@@ -897,7 +900,7 @@ def fmt(value: float) -> str:
     return f"{value:,.2f}".replace(",", " ")
 
 
-def _html_card(title: str, big: str, sub: str = "", css_class: str = "apple-card") -> str:
+def _html_card(title: str, big: str, sub: str = "", css_class: str = "notion-card") -> str:
     sub_html = f'<div class="sub-value">{sub}</div>' if sub else ""
     return f'<div class="{css_class}"><h3>{title}</h3><div class="big-value">{big}</div>{sub_html}</div>'
 
@@ -912,7 +915,7 @@ def render_pricing_card(bd: PricingBreakdown) -> None:
     flag = "\U0001f1f7\U0001f1fa" if bd.market == MARKET_RU else "\U0001f1f0\U0001f1ff"
     margin_pct = (bd.net_profit / bd.selling_price * 100) if bd.selling_price else 0
 
-    # Gradient market card
+    # Market card header (flat Notion style)
     st.markdown(
         f'<div class="{css_cls}">'
         f'<h3>{flag} {bd.market}</h3>'
@@ -932,13 +935,22 @@ def render_pricing_card(bd: PricingBreakdown) -> None:
     rows += _html_breakdown_row(f"Себестоимость ({bd.currency})", fmt(bd.cost_local))
     rows += _html_breakdown_row(f"Цена продажи ({bd.currency})", fmt(bd.selling_price), cls="total")
     if bd.market == MARKET_RU:
-        rows += _html_breakdown_row(f"Налог 13%", f"-{fmt(bd.tax_amount)} {bd.currency}")
-        rows += _html_breakdown_row(f"Платформа 6%", f"-{fmt(bd.platform_fee)} {bd.currency}")
+        rows += _html_breakdown_row("Налог 13%", f"\u2212{fmt(bd.tax_amount)} {bd.currency}")
+        rows += _html_breakdown_row("Платформа 6%", f"\u2212{fmt(bd.platform_fee)} {bd.currency}")
     else:
-        rows += _html_breakdown_row(f"НДС 20%", f"-{fmt(bd.tax_amount)} {bd.currency}")
-        rows += _html_breakdown_row(f"Партнёр 10%", f"-{fmt(bd.partner_fee)} {bd.currency}")
-        rows += _html_breakdown_row(f"Платформа 6%", f"-{fmt(bd.platform_fee)} {bd.currency}")
+        rows += _html_breakdown_row("НДС 20%", f"\u2212{fmt(bd.tax_amount)} {bd.currency}")
+        rows += _html_breakdown_row("Партнёр 10%", f"\u2212{fmt(bd.partner_fee)} {bd.currency}")
+        rows += _html_breakdown_row("Платформа 6%", f"\u2212{fmt(bd.platform_fee)} {bd.currency}")
     rows += _html_breakdown_row("Чистая прибыль", f"{fmt(bd.net_profit)} {bd.currency}", cls="profit")
+
+    # Виртуальная наценка только для рынка РФ
+    if bd.market == MARKET_RU:
+        virtual_price = round(bd.selling_price * VIRTUAL_MARKUP_COEFF, 2)
+        rows += _html_breakdown_row(
+            "Виртуальная наценка (Non-refundable)",
+            f"{fmt(virtual_price)} {bd.currency}",
+            cls="virtual",
+        )
 
     st.markdown(f'<div class="breakdown-list">{rows}</div>', unsafe_allow_html=True)
 
@@ -959,10 +971,14 @@ def render_live_badge(rates: ExchangeRates) -> None:
 # Page: dashboard
 # ──────────────────────────────────────────────
 def page_dashboard(event: dict) -> None:
-    st.markdown(f"<h1 style='font-size:36px;font-weight:800;letter-spacing:-1px;margin-bottom:0'>{event['name']}</h1>", unsafe_allow_html=True)
+    st.markdown(
+        f"<h1 style='font-size:32px;font-weight:700;letter-spacing:-0.5px;margin-bottom:0;color:#37352F'>"
+        f"{event['name']}</h1>",
+        unsafe_allow_html=True,
+    )
     st.caption(f"{event['date']}  \u00b7  {event['venue']}")
 
-    # ── Top metrics (Apple card tiles) ───────
+    # ── Top metrics ───────────────────────────
     metrics = get_event_metrics(event["id"])
     rate_for_m = event["rate_cb"] if event["rate_cb"] > 0 else FALLBACK_RATE_RUB_AED
     sold_cost_local = metrics["sold_cost_aed"] * (rate_for_m + PricingEngine.RU_RATE_MARKUP) if rate_for_m > 0 else 0
@@ -970,15 +986,15 @@ def page_dashboard(event: dict) -> None:
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown(_html_card("Вложено", f'{fmt(metrics["total_invested_aed"])} AED'), unsafe_allow_html=True)
+        st.markdown(_html_card("💼 Вложено", f'{fmt(metrics["total_invested_aed"])} AED'), unsafe_allow_html=True)
     with c2:
         pct = metrics["sold_count"] / metrics["total_tickets"] * 100 if metrics["total_tickets"] > 0 else 0
-        st.markdown(_html_card("Продано", f'{metrics["sold_count"]} / {metrics["total_tickets"]}', f'{pct:.0f}% реализовано'), unsafe_allow_html=True)
+        st.markdown(_html_card("🎫 Продано", f'{metrics["sold_count"]} / {metrics["total_tickets"]}', f'{pct:.0f}% реализовано'), unsafe_allow_html=True)
     with c3:
-        st.markdown(_html_card("Выручка", fmt(metrics["total_revenue"])), unsafe_allow_html=True)
+        st.markdown(_html_card("💰 Выручка", fmt(metrics["total_revenue"])), unsafe_allow_html=True)
     with c4:
         profit_str = fmt(net_profit_est) if sold_cost_local > 0 else "\u2014"
-        st.markdown(_html_card("Чистая прибыль", profit_str, "оценка по РФ рынку"), unsafe_allow_html=True)
+        st.markdown(_html_card("📈 Чистая прибыль", profit_str, "оценка по РФ"), unsafe_allow_html=True)
 
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
@@ -1003,12 +1019,10 @@ def page_dashboard(event: dict) -> None:
                 f'<div class="live-badge">KZT/AED: <b>{fmt(rates.kzt_per_aed)}</b> ({rates.kzt_source})</div>',
                 unsafe_allow_html=True,
             )
-        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
-        cc, cr, ck = st.columns(3)
-        cost_aed = cc.number_input(
-            "Цена закупа (AED)", min_value=0.0, value=100.0, step=10.0, key=f"cost_{event['id']}",
-        )
+        # Shared rate inputs
+        cr, ck = st.columns(2)
         default_rate_rub = event["rate_cb"] if event["rate_cb"] > 0 else rates.rub_per_aed
         rate_rub = cr.number_input(
             "Курс ЦБ РФ (RUB/AED)", min_value=0.0, value=default_rate_rub, step=0.5, key=f"rate_{event['id']}",
@@ -1024,31 +1038,104 @@ def page_dashboard(event: dict) -> None:
         if rate_kzt != event.get("rate_kzt", 0.0):
             update_event_rate_kzt(event["id"], rate_kzt)
 
-        if cost_aed > 0 and rate_rub > 0 and rate_kzt > 0:
-            bd_ru, bd_kz = PricingEngine.calculate_both(cost_aed, rate_rub, rate_kzt)
-            left, right = st.columns(2)
-            with left:
-                render_pricing_card(bd_ru)
-            with right:
-                render_pricing_card(bd_kz)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        st.markdown(
+            "<hr style='border:none;border-top:1px solid #EDEFEF;margin:0 0 16px 0'>",
+            unsafe_allow_html=True,
+        )
+
+        # ── Multiple ticket types ─────────────
+        count_key = f"eco_count_{event['id']}"
+        if count_key not in st.session_state:
+            st.session_state[count_key] = 1
+
+        hdr_col, add_col, rm_col = st.columns([5, 1, 1])
+        hdr_col.markdown("**🎫 Сравнение типов билетов**")
+        if add_col.button("＋ Тип", key=f"eco_add_{event['id']}"):
+            if st.session_state[count_key] < 4:
+                st.session_state[count_key] += 1
+                st.rerun()
+        if rm_col.button("− Убрать", key=f"eco_rm_{event['id']}"):
+            if st.session_state[count_key] > 1:
+                st.session_state[count_key] -= 1
+                st.rerun()
+
+        count = st.session_state[count_key]
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+        # Input row — one column per ticket type
+        input_cols = st.columns(count)
+        costs_all: list[float] = []
+        labels_all: list[str] = []
+        for i in range(count):
+            with input_cols[i]:
+                lbl = st.text_input(
+                    "Название типа",
+                    value=f"Тип {i + 1}",
+                    key=f"eco_lbl_{event['id']}_{i}",
+                )
+                cst = st.number_input(
+                    "Цена закупа (AED)",
+                    min_value=0.0,
+                    value=100.0,
+                    step=5.0,
+                    key=f"eco_cost_{event['id']}_{i}",
+                )
+                labels_all.append(lbl)
+                costs_all.append(cst)
+
+        # Results row
+        if rate_rub > 0 or rate_kzt > 0:
+            res_cols = st.columns(count)
+            for i in range(count):
+                with res_cols[i]:
+                    cst = costs_all[i]
+                    lbl = labels_all[i]
+                    if count > 1:
+                        st.markdown(
+                            f"<div style='font-size:13px;font-weight:600;color:#9B9A97;"
+                            f"text-transform:uppercase;letter-spacing:0.5px;"
+                            f"margin-bottom:8px'>{lbl}</div>",
+                            unsafe_allow_html=True,
+                        )
+                    if cst <= 0:
+                        st.caption("Укажите цену закупа")
+                        continue
+                    if rate_rub > 0:
+                        bd_ru = PricingEngine.calculate_ru(cst, rate_rub)
+                        render_pricing_card(bd_ru)
+                    if rate_kzt > 0:
+                        bd_kz = PricingEngine.calculate_kz(cst, rate_kzt)
+                        render_pricing_card(bd_kz)
         else:
-            st.info("Укажите цену закупа и курсы ЦБ для расчёта.")
+            st.info("Укажите курсы ЦБ для расчёта.")
 
     # ── Tab 2: Инвентарь ─────────────────────
     with tab_inv:
-        st.subheader("Добавить билет")
+        st.subheader("Добавить билеты")
         with st.form(f"add_ticket_{event['id']}", clear_on_submit=True):
-            f1, f2, f3, f4 = st.columns(4)
+            f1, f2, f3, f4, f5, f6 = st.columns([2, 1.2, 1.5, 1.5, 1, 2])
             t_sec = f1.text_input("Сектор")
             t_row = f2.text_input("Ряд")
-            t_seat = f3.text_input("Место")
+            t_seat = f3.text_input("Место (начало)")
             t_cost = f4.number_input("Цена (AED)", min_value=0.0, step=10.0)
-            if st.form_submit_button("Добавить"):
+            t_qty = f5.number_input("Кол-во", min_value=1, value=1, step=1)
+            t_platform = f6.text_input("Платформа/Приложение")
+            if st.form_submit_button("➕ Добавить билеты"):
                 if t_cost <= 0:
                     st.warning("Укажите цену закупа.")
                 else:
-                    add_ticket(event["id"], t_sec, t_row, t_seat, t_cost)
-                    st.success("Билет добавлен!")
+                    qty = int(t_qty)
+                    for j in range(qty):
+                        if qty > 1 and t_seat:
+                            try:
+                                seat_label = str(int(t_seat) + j)
+                            except ValueError:
+                                seat_label = f"{t_seat}-{j + 1}"
+                        else:
+                            seat_label = t_seat
+                        add_ticket(event["id"], t_sec, t_row, seat_label, t_cost, t_platform)
+                    st.success(f"{'Билет добавлен' if qty == 1 else f'{qty} билетов добавлено'}!")
                     st.rerun()
 
         # ── Category cards ───────────────────
@@ -1059,13 +1146,12 @@ def page_dashboard(event: dict) -> None:
             if rate_kzt_val <= 0:
                 rate_kzt_val = FALLBACK_RATE_KZT_AED
 
-            # Overall progress
             total_all = sum(s["total"] for s in summary)
             sold_all = sum(s["sold"] for s in summary)
             pct = sold_all / total_all if total_all > 0 else 0
             st.markdown(
-                f"<div class='apple-card'>"
-                f"<h3>Прогресс продаж</h3>"
+                f"<div class='notion-card'>"
+                f"<h3>📊 Прогресс продаж</h3>"
                 f"<div class='big-value'>{sold_all} / {total_all}</div>"
                 f"<div class='sub-value'>{pct:.0%} реализовано</div>"
                 f"<div class='progress-wrap'><div class='progress-fill' style='width:{pct*100:.1f}%'></div></div>"
@@ -1073,7 +1159,6 @@ def page_dashboard(event: dict) -> None:
                 unsafe_allow_html=True,
             )
 
-            # Per-category cards
             cols = st.columns(min(len(summary), 3))
             for i, s in enumerate(summary):
                 cat_name = s["category"] or "(без сектора)"
@@ -1109,17 +1194,24 @@ def page_dashboard(event: dict) -> None:
         tickets = list_tickets(event["id"])
         if tickets:
             with st.expander("Полный список билетов"):
-                df = pd.DataFrame(tickets)[["id", "sector", "row", "seat", "cost_aed", "status"]]
-                df.columns = ["ID", "Сектор", "Ряд", "Место", "Цена AED", "Статус"]
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                df_t = pd.DataFrame(tickets)
+                display_cols = ["id", "sector", "row", "seat", "cost_aed", "status"]
+                display_names = ["ID", "Сектор", "Ряд", "Место", "Цена AED", "Статус"]
+                if "platform" in df_t.columns:
+                    display_cols.insert(-1, "platform")
+                    display_names.insert(-1, "Платформа")
+                df_t = df_t[display_cols]
+                df_t.columns = display_names
+                st.dataframe(df_t, use_container_width=True, hide_index=True)
 
     # ── Tab 3: Продажи ───────────────────────
     with tab_sales:
         st.subheader("Загрузка продаж из файла")
         st.caption(
-            "Загрузите **total_report.csv** (разделитель `;`) или XLSX. "
-            "Обязательные колонки: **Section**, **Row**, **Seat**. "
-            "Опционально: Buyer/Customer, Contact, Market, Price."
+            "Поддерживается экспорт **Яндекс Афиши** (CSV `;`) и любой XLSX/CSV. "
+            "Обязательные колонки: **Сектор**, **Ряд**, **Место** (или аналоги). "
+            "Дополнительно: Покупатель, Телефон покупателя, Email покупателя, Сумма продажи, "
+            "Дата/время создания заказа."
         )
         uploaded = st.file_uploader("Выберите файл", type=["csv", "xlsx", "xls"], key=f"upload_{event['id']}")
         if uploaded is not None:
@@ -1135,7 +1227,7 @@ def page_dashboard(event: dict) -> None:
                     else:
                         st.success(
                             f"Успешно загружено **{result['imported']}** продаж, "
-                            f"выручка составила **{fmt(result['revenue'])}**"
+                            f"выручка **{fmt(result['revenue'])}**"
                         )
                         if result["skipped"]:
                             st.info(f"Пропущено (уже продано): {result['skipped']}")
@@ -1292,15 +1384,15 @@ def render_sidebar_rates(rates: ExchangeRates) -> None:
 # ──────────────────────────────────────────────
 def main() -> None:
     st.set_page_config(page_title="Ticket Resale MVP", page_icon="\U0001f3ab", layout="wide")
-    st.markdown(APPLE_CSS, unsafe_allow_html=True)
+    st.markdown(NOTION_CSS, unsafe_allow_html=True)
     init_db()
 
     selected_id = sidebar()
     if selected_id is None:
         st.markdown(
             "<div style='text-align:center;padding:80px 0'>"
-            "<h1 style='font-size:48px;font-weight:800;letter-spacing:-1.5px'>Ticket Resale</h1>"
-            "<p style='font-size:18px;color:#86868B'>Создайте первое событие через боковую панель</p>"
+            "<h1 style='font-size:44px;font-weight:700;letter-spacing:-1px;color:#37352F'>🎫 Ticket Resale</h1>"
+            "<p style='font-size:17px;color:#9B9A97'>Создайте первое событие через боковую панель</p>"
             "</div>",
             unsafe_allow_html=True,
         )
